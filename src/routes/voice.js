@@ -3,27 +3,65 @@ import { Router } from 'express';
 import { query } from '../db.js';
 import { getVoiceSessionContext } from '../services/elevenlabs.js';
 import { ariaToolHandlers } from '../services/openai.js';
+import { logger } from '../utils/logger.js';
 
 const router = Router();
 
-const serializeToolResult = (result) => {
-  if (typeof result === 'string') {
-    return result;
+const serializeToolResult = (result) =>
+  typeof result === 'string' ? result : JSON.stringify(result);
+
+const normalizeBoolean = (value) => {
+  if (typeof value === 'boolean') {
+    return value;
   }
 
-  if (result?.summary) {
-    return result.summary;
+  if (typeof value === 'string') {
+    if (value.toLowerCase() === 'true') {
+      return true;
+    }
+
+    if (value.toLowerCase() === 'false') {
+      return false;
+    }
   }
 
-  if (result?.confirmation_message) {
-    return result.confirmation_message;
+  return value;
+};
+
+const buildFallbackToolInput = (payload = {}) => {
+  const {
+    tool_name,
+    tool_input,
+    session_id,
+    sessionId,
+    conversation_id,
+    conversationId,
+    ...rest
+  } = payload;
+
+  return rest;
+};
+
+const normalizeToolInput = (payload = {}) => {
+  const rawToolInput =
+    typeof payload.tool_input === 'string'
+      ? JSON.parse(payload.tool_input || '{}')
+      : payload.tool_input && typeof payload.tool_input === 'object'
+        ? payload.tool_input
+        : buildFallbackToolInput(payload);
+  const mergedToolInput = {
+    ...rawToolInput
+  };
+
+  if (!mergedToolInput.session_id && (payload.session_id || payload.sessionId)) {
+    mergedToolInput.session_id = payload.session_id || payload.sessionId;
   }
 
-  if (result?.error) {
-    return result.error;
+  if ('sms_opted_in' in mergedToolInput) {
+    mergedToolInput.sms_opted_in = normalizeBoolean(mergedToolInput.sms_opted_in);
   }
 
-  return JSON.stringify(result);
+  return mergedToolInput;
 };
 
 const extractSessionId = (payload = {}) =>
@@ -171,7 +209,7 @@ router.post('/initiate-call', async (request, response, next) => {
 });
 
 router.post('/webhook/tool-call', async (request, response) => {
-  const { tool_name, tool_input, session_id } = request.body;
+  const { tool_name } = request.body;
 
   if (!tool_name) {
     return response.status(400).json({ error: 'tool_name is required.' });
@@ -184,24 +222,21 @@ router.post('/webhook/tool-call', async (request, response) => {
   }
 
   try {
-    const parsedToolInput =
-      typeof tool_input === 'string' ? JSON.parse(tool_input || '{}') : tool_input || {};
-    const mergedToolInput = {
-      ...parsedToolInput
-    };
-
-    if (!mergedToolInput.session_id && session_id) {
-      mergedToolInput.session_id = session_id;
-    }
+    const mergedToolInput = normalizeToolInput(request.body);
+    logger.info(`[voice-tool] Running ${tool_name}`);
 
     const toolResult = await handler(mergedToolInput);
+    logger.info(`[voice-tool] ${tool_name} completed successfully`);
 
     return response.json({
       result: serializeToolResult(toolResult)
     });
   } catch (error) {
+    logger.error(`[voice-tool] ${tool_name} failed: ${error.message}`);
     return response.json({
-      result: error.message || 'Unable to complete that tool call.'
+      result: serializeToolResult({
+        error: error.message || 'Unable to complete that tool call.'
+      })
     });
   }
 });

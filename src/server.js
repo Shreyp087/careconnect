@@ -25,6 +25,8 @@ const __dirname = path.dirname(__filename);
 const clientDistPath = path.resolve(__dirname, '../client/dist');
 const isDirectRun =
   process.argv[1] && path.resolve(process.argv[1]) === __filename;
+const isPm2Run = typeof process.env.pm_id !== 'undefined';
+const shouldStartServer = isDirectRun || isPm2Run;
 const chatRateLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 30,
@@ -91,7 +93,7 @@ app.use((error, _request, response, _next) => {
   });
 });
 
-if (isDirectRun) {
+if (shouldStartServer) {
   startReminderJob();
 
   app.listen(port, () => {

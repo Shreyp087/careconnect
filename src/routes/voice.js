@@ -69,7 +69,12 @@ const extractSessionId = (payload = {}) =>
   payload.sessionId ||
   payload?.dynamic_variables?.session_id ||
   payload?.conversation_initiation_client_data?.dynamic_variables?.session_id ||
+  payload?.data?.dynamic_variables?.session_id ||
+  payload?.data?.conversation_initiation_client_data?.dynamic_variables?.session_id ||
+  payload?.data?.analysis?.dynamic_variables?.session_id ||
+  payload?.data?.metadata?.dynamic_variables?.session_id ||
   payload?.metadata?.session_id ||
+  payload?.data?.metadata?.session_id ||
   payload?.data?.session_id ||
   '';
 
@@ -246,6 +251,11 @@ router.post('/webhook/end-of-call', async (request, response, next) => {
     const sessionId = extractSessionId(request.body);
 
     if (!sessionId) {
+      logger.warn(
+        `[voice-end-of-call] Missing session_id. Top-level keys: ${Object.keys(
+          request.body || {}
+        ).join(', ')}`
+      );
       return response.status(400).json({ error: 'session_id is required.' });
     }
 

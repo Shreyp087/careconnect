@@ -37,17 +37,41 @@ const chatRateLimiter = rateLimit({
   }
 });
 
+const allowedOrigins = new Set(
+  [frontendUrl, 'http://localhost:5173', 'http://127.0.0.1:5173'].filter(Boolean)
+);
+
+const isAllowedOrigin = (origin = '') => {
+  if (!origin) {
+    return true;
+  }
+
+  if (allowedOrigins.has(origin)) {
+    return true;
+  }
+
+  try {
+    const { hostname } = new URL(origin);
+    return hostname === 'elevenlabs.io' || hostname.endsWith('.elevenlabs.io');
+  } catch {
+    return false;
+  }
+};
+
 app.set('trust proxy', 1);
 app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin || origin === frontendUrl) {
-        return callback(null, true);
-      }
+  cors((request, callback) => {
+    const origin = request.header('Origin');
+    const isVoiceRoute = request.path.startsWith('/api/voice/');
 
-      return callback(new Error('Not allowed by CORS'));
-    },
-    credentials: true
+    if (isVoiceRoute || isAllowedOrigin(origin)) {
+      return callback(null, {
+        origin: true,
+        credentials: true
+      });
+    }
+
+    return callback(new Error('Not allowed by CORS'));
   })
 );
 app.use(morgan('combined', { stream: morganStream }));

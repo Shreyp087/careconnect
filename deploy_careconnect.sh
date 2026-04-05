@@ -286,7 +286,7 @@ info "Phase 9: Starting application with PM2..."
 cd /home/ubuntu/careconnect
 
 # Write PM2 ecosystem config
-cat > ecosystem.config.js <<EOF
+cat > ecosystem.config.cjs <<EOF
 module.exports = {
   apps: [{
     name: 'careconnect',
@@ -314,7 +314,7 @@ pm2 stop careconnect 2>/dev/null || true
 pm2 delete careconnect 2>/dev/null || true
 
 # Start fresh
-pm2 start ecosystem.config.js --env production
+pm2 start ecosystem.config.cjs --env production
 pm2 save
 
 log "Application started with PM2"

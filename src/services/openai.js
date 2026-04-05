@@ -23,19 +23,30 @@ const OFFICE_INFO = {
   pharmacyPhone: '555-0199'
 };
 
-export const SYSTEM_PROMPT = `You are a friendly, empathetic patient scheduling assistant for Greenfield Medical Practice. Your name is Aria.
+export const SYSTEM_PROMPT = `You are Aria, a warm and efficient patient scheduling assistant for Greenfield Medical Practice. Your name is Aria.
 
-Your ONLY role is to help patients: schedule appointments, check office hours/address, check on prescription refills (tell them to call the pharmacy at 555-0199), and answer general practice questions.
+DOCTORS AND WHAT THEY TREAT:
+- Dr. Sarah Chen (Cardiologist): heart, chest, cardiovascular issues, palpitations, blood pressure, shortness of breath, cholesterol, irregular heartbeat
+- Dr. Marcus Webb (Orthopedist): knee, back, spine, shoulder, hip, joint pain, bone issues, sports injuries, arthritis, wrist, ankle, neck, fractures
+- Dr. Priya Nair (Dermatologist): skin, rash, acne, hair loss, nail problems, moles, eczema, psoriasis, itching, dryness, lesions
+- Dr. James Okafor (Neurologist): headache, migraine, dizziness, brain, nerve pain, numbness, tingling, memory issues, seizures, tremors, vertigo, concussion
 
-You MUST NEVER provide medical diagnoses, treatment recommendations, dosage advice, or any medical opinion. If asked anything medical, say: 'I'm not able to provide medical advice — please speak with your doctor directly.'
+MATCHING RULES:
+- "headache" or "migraines" or "dizzy" -> ALWAYS book Dr. James Okafor
+- "knee" or "back pain" or "shoulder" -> ALWAYS book Dr. Marcus Webb
+- "skin" or "rash" or "acne" -> ALWAYS book Dr. Priya Nair
+- "heart" or "chest pain" or "blood pressure" -> ALWAYS book Dr. Sarah Chen
+- If unclear, ask ONE clarifying question about which body part or symptom
+- If the condition is outside these specialties, say warmly: "We don't have a specialist for that at our practice. I'd recommend contacting your primary care doctor for a referral."
 
-When scheduling an appointment:
-1. Collect: first name, last name, date of birth, phone number, email, and reason/body part
-2. Date of birth must be in MM/DD/YYYY format. If it is not, ask the patient to re-enter it in MM/DD/YYYY format before booking.
-3. Use the get_available_slots tool to find matching providers and slots
-4. Present 4-6 slots clearly (date, time, doctor name)
-5. Once patient selects a slot, use book_appointment tool
-6. Confirm the booking warmly
+APPOINTMENT BOOKING FLOW:
+1. When the patient mentions a symptom or says they want an appointment, immediately identify the right doctor using the matching rules above.
+2. Collect information ONE field at a time in this order: first name, last name, date of birth in MM/DD/YYYY format, phone number, email address, then confirm the reason or symptom.
+3. Call get_available_slots with the matched body_part.
+4. Present slots clearly in this format: "I have the following available with Dr. [Name]:" followed by 4-6 numbered options, each on its own line.
+5. Ask the patient to pick a number.
+6. Call book_appointment with all collected information.
+7. Confirm warmly: "You're all set! Your appointment with Dr. [Name] is confirmed for [date] at [time]. You'll receive a confirmation email at [email]."
 
 If get_available_slots returns error "no_slots":
 - If next_available_days are provided, explain that the requested day or time is not available for that doctor and offer the next 2 available days.
@@ -44,9 +55,23 @@ If get_available_slots returns error "no_slots":
 
 If book_appointment returns error "duplicate_appointment", explain that the patient already has an appointment on file and ask whether they want to reschedule.
 
-Office info: 123 Wellness Drive, Suite 400, Springfield. Hours: Mon-Fri 8am-6pm, Sat 9am-1pm. Phone: 555-0100.
+VOICE CALL FLOW:
+- If the patient says anything like "can you call me", "schedule a call", "phone call", "call me instead", or "prefer to talk", respond EXACTLY with:
+"Of course! I can have our AI assistant call you right now to continue this conversation by voice. Just click the 'Call me instead' button on the left, and you'll receive a call at the phone number you provided. The assistant will have full context of our conversation."
+- Do NOT tell them to call 555-0100 for a voice call request.
 
-Always be warm, concise, and professional.`;
+OFFICE INFO:
+- Address: 123 Wellness Drive, Suite 400, Springfield
+- Phone: 555-0100
+- Hours: Monday-Friday 8:00 AM-6:00 PM, Saturday 9:00 AM-1:00 PM
+- Prescription refills: direct patients to call their pharmacy directly
+
+HARD RULES:
+- Never provide medical diagnoses, treatment advice, or dosage guidance.
+- If asked medical questions, say: "That's a great question for your doctor. I want to make sure you get the right answer from a medical professional."
+- If the patient seems to be in an emergency, say: "If this is a medical emergency, please call 911 or go to your nearest emergency room immediately."
+- Never repeat all 6 intake fields at once. Collect them one at a time.
+- Always be warm, never rushed, and use the patient's first name once you have it.`;
 
 const TOOL_DEFINITIONS = [
   {
@@ -145,6 +170,9 @@ const TOOL_DEFINITIONS = [
 const FALLBACK_SCHEDULING_REPLY =
   'I can help with scheduling. Please share your first name, last name, date of birth in MM/DD/YYYY format, phone number, email, and what body part or concern you need seen.';
 
+const VOICE_HANDOFF_REPLY =
+  "Of course! I can have our AI assistant call you right now to continue this conversation by voice. Just click the 'Call me instead' button on the left, and you'll receive a call at the phone number you provided. The assistant will have full context of our conversation.";
+
 const normalizeTokens = (value = '') =>
   value
     .toLowerCase()
@@ -161,6 +189,120 @@ const normalizeTokens = (value = '') =>
 
       return token;
     });
+
+const SPECIALTY_KEYWORD_MAP = {
+  headache: 'neurologist',
+  headaches: 'neurologist',
+  migraine: 'neurologist',
+  migraines: 'neurologist',
+  dizzy: 'neurologist',
+  dizziness: 'neurologist',
+  vertigo: 'neurologist',
+  concussion: 'neurologist',
+  brain: 'neurologist',
+  nerve: 'neurologist',
+  'nerve pain': 'neurologist',
+  numbness: 'neurologist',
+  tingling: 'neurologist',
+  memory: 'neurologist',
+  seizure: 'neurologist',
+  seizures: 'neurologist',
+  tremor: 'neurologist',
+  tremors: 'neurologist',
+  neurological: 'neurologist',
+  heart: 'cardiologist',
+  chest: 'cardiologist',
+  'chest pain': 'cardiologist',
+  cardiovascular: 'cardiologist',
+  palpitation: 'cardiologist',
+  palpitations: 'cardiologist',
+  'blood pressure': 'cardiologist',
+  hypertension: 'cardiologist',
+  cholesterol: 'cardiologist',
+  'shortness of breath': 'cardiologist',
+  cardiac: 'cardiologist',
+  'irregular heartbeat': 'cardiologist',
+  knee: 'orthopedist',
+  back: 'orthopedist',
+  'back pain': 'orthopedist',
+  spine: 'orthopedist',
+  shoulder: 'orthopedist',
+  hip: 'orthopedist',
+  joint: 'orthopedist',
+  'joint pain': 'orthopedist',
+  bone: 'orthopedist',
+  bones: 'orthopedist',
+  fracture: 'orthopedist',
+  fractures: 'orthopedist',
+  wrist: 'orthopedist',
+  ankle: 'orthopedist',
+  neck: 'orthopedist',
+  arthritis: 'orthopedist',
+  'sports injury': 'orthopedist',
+  'sports injuries': 'orthopedist',
+  orthopedic: 'orthopedist',
+  orthopedics: 'orthopedist',
+  skin: 'dermatologist',
+  rash: 'dermatologist',
+  acne: 'dermatologist',
+  hair: 'dermatologist',
+  'hair loss': 'dermatologist',
+  nail: 'dermatologist',
+  nails: 'dermatologist',
+  'nail problems': 'dermatologist',
+  mole: 'dermatologist',
+  moles: 'dermatologist',
+  eczema: 'dermatologist',
+  psoriasis: 'dermatologist',
+  itching: 'dermatologist',
+  itchy: 'dermatologist',
+  dryness: 'dermatologist',
+  lesion: 'dermatologist',
+  lesions: 'dermatologist',
+  dermatology: 'dermatologist'
+};
+
+const OUT_OF_SCOPE_KEYWORDS = [
+  'dentist',
+  'dental',
+  'tooth',
+  'teeth',
+  'eye',
+  'vision',
+  'optometrist',
+  'psychiatry',
+  'psychiatrist',
+  'therapy',
+  'mental health'
+];
+
+const findMatchingProviders = (bodyPart = '') => {
+  const input = bodyPart.toLowerCase().trim();
+
+  if (!input) {
+    return null;
+  }
+
+  const sortedKeywords = Object.keys(SPECIALTY_KEYWORD_MAP).sort(
+    (left, right) => right.length - left.length
+  );
+
+  for (const keyword of sortedKeywords) {
+    if (input.includes(keyword)) {
+      return SPECIALTY_KEYWORD_MAP[keyword];
+    }
+  }
+
+  const normalizedInputTokens = normalizeTokens(input);
+
+  for (const token of normalizedInputTokens) {
+    if (SPECIALTY_KEYWORD_MAP[token]) {
+      return SPECIALTY_KEYWORD_MAP[token];
+    }
+  }
+
+  return null;
+};
 
 const formatSlotDateTime = (slotDateTime) =>
   new Date(slotDateTime).toLocaleString('en-US', {
@@ -351,6 +493,14 @@ const buildFallbackReply = async (sessionId, userMessage) => {
     String(userMessage).match(/\b(\d{1,4}[/-]\d{1,2}[/-]\d{1,4}|\d{8})\b/)?.[1] || '';
 
   if (
+    /(call me|schedule a call|phone call|call me instead|prefer to talk|talk by phone)/i.test(
+      userMessage
+    )
+  ) {
+    return VOICE_HANDOFF_REPLY;
+  }
+
+  if (
     normalized.includes('prescription') ||
     normalized.includes('refill') ||
     normalized.includes('pharmacy')
@@ -462,47 +612,80 @@ export const getAvailableSlots = async ({
   preferred_day = '',
   preferred_time = ''
 }) => {
-  const inputTokens = new Set(normalizeTokens(body_part));
-
-  const providerResult = await query(
-    `
+  const specialty = findMatchingProviders(body_part);
+  const providerParams = [];
+  let providerQuery = `
       SELECT id, name, specialty, body_parts, bio
       FROM providers
+  `;
+
+  if (specialty) {
+    providerParams.push(specialty);
+    providerQuery += `
+      WHERE LOWER(specialty) = $1
+      ORDER BY name
+    `;
+  } else {
+    providerQuery += `
       ORDER BY specialty, name
-    `
+    `;
+  }
+
+  const providerResult = await query(
+    providerQuery,
+    providerParams
   );
 
-  const matchedProviders = providerResult.rows
-    .map((provider) => {
-      const providerTokens = new Set(
-        provider.body_parts.flatMap((part) => normalizeTokens(part))
-      );
-      const overlap = Array.from(inputTokens).filter((token) => providerTokens.has(token));
+  let matchedProviders = [];
 
-      return {
-        ...provider,
-        match_score: overlap.length,
-        matched_terms: overlap
-      };
-    })
-    .filter((provider) => provider.match_score > 0)
-    .sort((left, right) => {
-      if (right.match_score !== left.match_score) {
-        return right.match_score - left.match_score;
-      }
+  if (specialty) {
+    matchedProviders = providerResult.rows.map((provider) => ({
+      ...provider,
+      match_score: 100,
+      matched_terms: [specialty]
+    }));
+  } else {
+    const inputTokens = new Set(normalizeTokens(body_part));
 
-      return left.name.localeCompare(right.name);
-    });
+    matchedProviders = providerResult.rows
+      .map((provider) => {
+        const providerTokens = new Set(
+          provider.body_parts.flatMap((part) => normalizeTokens(part))
+        );
+        const overlap = Array.from(inputTokens).filter((token) => providerTokens.has(token));
+
+        return {
+          ...provider,
+          match_score: overlap.length,
+          matched_terms: overlap
+        };
+      })
+      .filter((provider) => provider.match_score > 0)
+      .sort((left, right) => {
+        if (right.match_score !== left.match_score) {
+          return right.match_score - left.match_score;
+        }
+
+        return left.name.localeCompare(right.name);
+      });
+  }
 
   if (!matchedProviders.length) {
+    const noMatchMessage = OUT_OF_SCOPE_KEYWORDS.some((keyword) =>
+      body_part.toLowerCase().includes(keyword)
+    )
+      ? "We don't have a specialist for that at our practice. I'd recommend contacting your primary care doctor for a referral."
+      : `We don't have a specialist for "${body_part}" at our practice. We have Cardiology (heart/chest), Orthopedics (bones/joints), Dermatology (skin/hair), and Neurology (headaches/nerves).`;
+
     return {
+      error: 'no_match',
       body_part,
       preferred_day: preferred_day || null,
       preferred_time: preferred_time || null,
       providers: [],
       formatted_options: [],
-      summary:
-        'I could not find a direct specialist match for that concern yet. Ask the patient for a clearer body part or offer the office phone number for help.'
+      message: noMatchMessage,
+      summary: noMatchMessage
     };
   }
 
@@ -580,11 +763,14 @@ export const getAvailableSlots = async ({
       provider_name: slot.provider_name,
       specialty: slot.specialty,
       slot_datetime: slot.slot_datetime,
-      text: `${index + 1}. ${formatSlotDateTime(slot.slot_datetime)} - ${slot.provider_name} (${slot.specialty})`
+      text: `${index + 1}. ${formatSlotDateTime(slot.slot_datetime)}`,
+      detailed_text: `${index + 1}. ${formatSlotDateTime(slot.slot_datetime)} - ${slot.provider_name} (${slot.specialty})`
     }));
 
   const summary = formattedOptions.length
-    ? `Available options:\n${formattedOptions.map((option) => option.text).join('\n')}`
+    ? `I have the following available with ${primaryProvider.name}:\n${formattedOptions
+        .map((option) => option.text)
+        .join('\n')}`
     : 'I found matching specialists, but no available slots matched the preferred day or time.';
 
   if (!formattedOptions.length) {
@@ -600,20 +786,39 @@ export const getAvailableSlots = async ({
       specialty: primaryProvider.specialty,
       next_available_days: nextAvailableDays,
       summary: nextAvailableDays.length
-        ? `We don't have ${preferred_day || preferred_time || 'that'} availability for ${primaryProvider.name}, but I have openings on ${nextAvailableDays.join(
+        ? `We don't have ${preferred_day || preferred_time || 'that'} availability for Dr. ${primaryProvider.name.replace(
+            /^Dr\.\s*/i,
+            ''
+          )}, but I have openings on ${nextAvailableDays.join(
             ' and '
           )}.`
-        : `I'm sorry, ${primaryProvider.name} doesn't have any available appointments in the next 45 days. Would you like me to add you to the waitlist, or can I help you with anything else?`
+        : `I'm sorry, Dr. ${primaryProvider.name.replace(
+            /^Dr\.\s*/i,
+            ''
+          )} doesn't have any available appointments in the next 45 days. Would you like me to add you to the waitlist, or can I help you with anything else?`
     };
   }
 
   return {
     body_part,
+    matched_specialty: specialty || primaryProvider.specialty.toLowerCase(),
     preferred_day: preferred_day || null,
     preferred_time: preferred_time || null,
+    provider_name: primaryProvider.name,
+    specialty: primaryProvider.specialty,
+    slots: formattedOptions.map((option) => ({
+      slot_id: option.slot_id,
+      provider_id: option.provider_id,
+      date: formatDayLabel(option.slot_datetime),
+      time: new Date(option.slot_datetime).toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit'
+      }),
+      datetime_raw: option.slot_datetime
+    })),
     providers: providerMatches,
     formatted_options: formattedOptions,
-      summary
+    summary
   };
 };
 

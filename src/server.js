@@ -41,6 +41,16 @@ const allowedOrigins = new Set(
   [frontendUrl, 'http://localhost:5173', 'http://127.0.0.1:5173'].filter(Boolean)
 );
 
+const getHostname = (value = '') => {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return '';
+  }
+};
+
+const frontendHostname = getHostname(frontendUrl);
+
 const isAllowedOrigin = (origin = '') => {
   if (!origin) {
     return true;
@@ -52,6 +62,11 @@ const isAllowedOrigin = (origin = '') => {
 
   try {
     const { hostname } = new URL(origin);
+
+    if (frontendHostname && hostname === frontendHostname) {
+      return true;
+    }
+
     return hostname === 'elevenlabs.io' || hostname.endsWith('.elevenlabs.io');
   } catch {
     return false;
@@ -71,6 +86,9 @@ app.use(
       });
     }
 
+    logger.warn(
+      `[cors] Rejected request for ${request.path} from origin ${origin || 'unknown'}`
+    );
     return callback(new Error('Not allowed by CORS'));
   })
 );

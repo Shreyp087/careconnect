@@ -1,7 +1,6 @@
 import { Router } from 'express';
 
 import { query } from '../db.js';
-import { getVoiceSessionContext } from '../services/elevenlabs.js';
 import { ariaToolHandlers } from '../services/openai.js';
 import { logger } from '../utils/logger.js';
 
@@ -141,12 +140,27 @@ const normalizeTranscriptEntries = (payload = {}) => {
   return [];
 };
 
-router.post('/initiate-call', async (request, response, next) => {
+const buildRecentConversationSummary = (history = []) => {
+  const recentMessages = Array.isArray(history) ? history.slice(-6) : [];
+
+  if (!recentMessages.length) {
+    return 'New conversation - patient is starting fresh.';
+  }
+
+  return recentMessages
+    .map((message) => {
+      const roleLabel = message.role === 'user' ? 'Patient' : 'Aria';
+      return `${roleLabel}: ${String(message.content || '').trim()}`;
+    })
+    .join('\n');
+};
+
+router.post('/initiate-call', async (request, response) => {
   try {
     const { sessionId } = request.body;
 
     if (!sessionId) {
-      return response.status(400).json({ error: 'sessionId is required.' });
+      return response.status(400).json({ error: 'sessionId required' });
     }
 
     if (
@@ -160,23 +174,43 @@ router.post('/initiate-call', async (request, response, next) => {
       });
     }
 
-    const session = await getVoiceSessionContext(sessionId);
+    const sessionResult = await query(
+      `
+        SELECT *
+        FROM sessions
+        WHERE id = $1
+      `,
+      [sessionId]
+    );
 
-    if (!session.patientPhone) {
+    if (!sessionResult.rows.length) {
+      return response.status(404).json({ error: 'Session not found' });
+    }
+
+    const {
+      patient_phone: patientPhone,
+      patient_first_name: patientFirstName,
+      conversation_history: conversationHistory
+    } = sessionResult.rows[0];
+
+    if (!patientPhone) {
       return response.status(400).json({
-        error: 'This session does not have a patient phone number yet.'
+        error: 'no_phone',
+        message:
+          'No phone number on file. Please provide your phone number in the chat first.'
       });
     }
 
+    const summary = buildRecentConversationSummary(conversationHistory);
     const outboundPayload = {
       agent_id: process.env.ELEVENLABS_AGENT_ID,
       agent_phone_number_id: process.env.ELEVENLABS_PHONE_NUMBER_ID,
-      to_number: session.patientPhone,
+      to_number: patientPhone,
       conversation_initiation_client_data: {
         dynamic_variables: {
           session_id: sessionId,
-          patient_name: session.patientFirstName || 'there',
-          conversation_summary: session.conversationSummary
+          patient_name: patientFirstName || 'there',
+          conversation_summary: summary
         }
       }
     };
@@ -193,23 +227,35 @@ router.post('/initiate-call', async (request, response, next) => {
       }
     );
 
-    if (!elevenLabsResponse.ok) {
-      const errorBody = await elevenLabsResponse.text();
-      throw new Error(
-        `ElevenLabs outbound call request failed (${elevenLabsResponse.status}): ${errorBody}`
-      );
+    const rawResponse = await elevenLabsResponse.text();
+    let parsedResponse = {};
+
+    try {
+      parsedResponse = rawResponse ? JSON.parse(rawResponse) : {};
+    } catch {
+      parsedResponse = rawResponse ? { raw: rawResponse } : {};
     }
+
+    if (!elevenLabsResponse.ok) {
+      logger.error('[VOICE] ElevenLabs error:', parsedResponse);
+      return response.status(500).json({
+        error: 'call_failed',
+        message: 'Could not initiate call. Please try again.',
+        details: parsedResponse
+      });
+    }
+
+    logger.info('[VOICE] Call initiated:', parsedResponse);
 
     return response.json({
       success: true,
-      message: 'Call initiated'
+      message: `Calling ${patientPhone}`,
+      phone: patientPhone,
+      call_id: parsedResponse.call_id || parsedResponse.id || null
     });
   } catch (error) {
-    if (error.message === 'Session not found.') {
-      return response.status(404).json({ error: error.message });
-    }
-
-    return next(error);
+    logger.error('[VOICE ERROR]', error.message);
+    return response.status(500).json({ error: error.message });
   }
 });
 

@@ -3,6 +3,11 @@ import { useEffect, useState } from 'react';
 const SESSION_STORAGE_KEY = 'careconnect-session-id';
 const HIDDEN_GREETING_MESSAGE = 'hello';
 const RETURNING_USER_SIGNAL = '__RETURNING_USER__';
+const OFFICE_PHONE =
+  import.meta.env.VITE_OFFICE_PHONE || '(your real number)';
+const OFFICE_ADDRESS =
+  import.meta.env.VITE_OFFICE_ADDRESS ||
+  '123 Wellness Drive, Suite 400, Springfield';
 
 const buildLocalMessage = (role, content) => ({
   id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -54,7 +59,7 @@ const apiRequest = async (path, options = {}) => {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.error || 'Something went wrong.');
+    throw new Error(data.message || data.error || 'Something went wrong.');
   }
 
   return data;
@@ -127,6 +132,12 @@ function TypingIndicator() {
   );
 }
 
+function ButtonSpinner() {
+  return (
+    <span className="inline-flex h-4 w-4 animate-spin rounded-full border-2 border-current border-r-transparent" />
+  );
+}
+
 function MessageItem({ message }) {
   const isUser = message.role === 'user';
   const timestamp = formatMessageTimestamp(message.createdAt);
@@ -167,13 +178,16 @@ export default function PatientChat() {
   const [isTyping, setIsTyping] = useState(false);
   const [error, setError] = useState('');
   const [toastMessage, setToastMessage] = useState('');
+  const [toastTone, setToastTone] = useState('neutral');
   const [showCallModal, setShowCallModal] = useState(false);
   const [callError, setCallError] = useState('');
   const [isInitiatingCall, setIsInitiatingCall] = useState(false);
+  const [isCallInProgress, setIsCallInProgress] = useState(false);
   const [intakeComplete, setIntakeComplete] = useState(false);
   const [smsOptedIn, setSmsOptedIn] = useState(true);
   const [patientPhone, setPatientPhone] = useState('');
   const [appointment, setAppointment] = useState(null);
+  const canInitiateVoiceCall = Boolean(patientPhone);
 
   useEffect(() => {
     const syncSessionState = async (activeSessionId) => {
@@ -303,6 +317,18 @@ export default function PatientChat() {
     return () => window.clearTimeout(timeoutId);
   }, [toastMessage]);
 
+  useEffect(() => {
+    if (!isCallInProgress) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setIsCallInProgress(false);
+    }, 60000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [isCallInProgress]);
+
   const refreshSessionState = async (activeSessionId) => {
     try {
       const state = await apiRequest(`/api/session/${activeSessionId}`);
@@ -383,7 +409,7 @@ export default function PatientChat() {
   };
 
   const handleCallConfirm = async () => {
-    if (!sessionId) {
+    if (!sessionId || !patientPhone) {
       return;
     }
 
@@ -397,12 +423,32 @@ export default function PatientChat() {
       });
 
       setShowCallModal(false);
-      setToastMessage(data.message || 'Calling you now...');
+      setIsCallInProgress(true);
+      setToastMessage('');
+      setMessages((currentMessages) => [
+        ...currentMessages,
+        buildLocalMessage(
+          'assistant',
+          `Calling you now at ${data.phone || patientPhone}! Pick up when you see the call — I'll have everything from our chat ready to go.`
+        )
+      ]);
     } catch (callRequestError) {
-      setCallError(callRequestError.message);
+      const fallbackMessage = `Couldn't initiate the call. Please try again or call us at ${OFFICE_PHONE}.`;
+      setCallError(callRequestError.message || fallbackMessage);
+      setToastTone('error');
+      setToastMessage(fallbackMessage);
     } finally {
       setIsInitiatingCall(false);
     }
+  };
+
+  const handleCallButtonClick = () => {
+    if (!canInitiateVoiceCall || isCallInProgress) {
+      return;
+    }
+
+    setCallError('');
+    setShowCallModal(true);
   };
 
   const handleNewConversation = () => {
@@ -444,18 +490,14 @@ export default function PatientChat() {
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                 Address
               </p>
-              <p className="mt-1 text-sm text-slate-700">
-                123 Wellness Drive, Suite 400
-                <br />
-                Springfield
-              </p>
+              <p className="mt-1 text-sm text-slate-700">{OFFICE_ADDRESS}</p>
             </div>
 
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                 Phone
               </p>
-              <p className="mt-1 text-sm text-slate-700">555-0100</p>
+              <p className="mt-1 text-sm text-slate-700">{OFFICE_PHONE}</p>
             </div>
 
             <div>
@@ -497,21 +539,33 @@ export default function PatientChat() {
             </div>
           ) : null}
 
-          <button
-            type="button"
-            onClick={() => {
-              setCallError('');
-              setShowCallModal(true);
-            }}
-            className="mt-8 inline-flex w-full items-center justify-center rounded-2xl bg-sky-500 px-4 py-3.5 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(14,165,233,0.25)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-sky-600 focus:outline-none focus:ring-4 focus:ring-sky-100"
-            disabled={loadingSession}
+          <div
+            className="mt-8"
+            title={
+              !canInitiateVoiceCall
+                ? 'Complete intake first to enable voice call'
+                : undefined
+            }
           >
-            Call me instead
-          </button>
+            <button
+              type="button"
+              onClick={handleCallButtonClick}
+              className={`inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-sm font-semibold transition-all duration-200 focus:outline-none focus:ring-4 ${
+                isCallInProgress
+                  ? 'bg-emerald-500 text-white shadow-[0_12px_24px_rgba(16,185,129,0.24)] focus:ring-emerald-100'
+                  : canInitiateVoiceCall
+                    ? 'bg-sky-500 text-white shadow-[0_12px_24px_rgba(14,165,233,0.25)] hover:-translate-y-0.5 hover:bg-sky-600 focus:ring-sky-100'
+                    : 'cursor-not-allowed bg-sky-200 text-sky-800/75 shadow-none'
+              }`}
+              disabled={loadingSession || !canInitiateVoiceCall || isCallInProgress}
+            >
+              {isCallInProgress ? 'Call in progress...' : 'Call me instead'}
+            </button>
+          </div>
 
           <p className="mt-3 text-sm leading-6 text-slate-500">
-            Prefer a phone call? Our assistant can hand the conversation off without losing your
-            place.
+            Prefer a phone call? Aria can continue by voice as soon as your phone number is on
+            file.
           </p>
         </aside>
 
@@ -636,13 +690,11 @@ export default function PatientChat() {
       {showCallModal ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 px-4">
           <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl animate-rise transition-all duration-300">
-            <h2 className="text-2xl font-semibold text-slate-900">Switch to a phone call</h2>
+            <h2 className="text-2xl font-semibold text-slate-900">Continue by phone?</h2>
             <p className="mt-3 text-sm leading-6 text-slate-600">
-              We&apos;ll call you at the number you provided. The AI will pick up right where we
-              left off.
-            </p>
-            <p className="mt-2 text-sm text-slate-500">
-              {patientPhone ? `Current number on file: ${patientPhone}` : 'If we do not have your number yet, we will confirm it on the call.'}
+              We&apos;ll call you at <span className="font-semibold text-slate-900">{patientPhone}</span>{' '}
+              right now. Aria will have full context of your conversation and pick up right where
+              we left off.
             </p>
 
             {callError ? (
@@ -666,10 +718,17 @@ export default function PatientChat() {
               <button
                 type="button"
                 onClick={handleCallConfirm}
-                className="inline-flex items-center justify-center rounded-2xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white transition-colors duration-200 hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white transition-colors duration-200 hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={isInitiatingCall}
               >
-                {isInitiatingCall ? 'Starting call...' : 'Call me now'}
+                {isInitiatingCall ? (
+                  <>
+                    <ButtonSpinner />
+                    Calling...
+                  </>
+                ) : (
+                  'Call me now'
+                )}
               </button>
             </div>
           </div>
@@ -677,7 +736,11 @@ export default function PatientChat() {
       ) : null}
 
       {toastMessage ? (
-        <div className="fixed bottom-5 right-5 z-50 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white shadow-xl transition-all duration-300 animate-rise">
+        <div
+          className={`fixed bottom-5 right-5 z-50 rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-xl transition-all duration-300 animate-rise ${
+            toastTone === 'error' ? 'bg-rose-600' : 'bg-slate-900'
+          }`}
+        >
           {toastMessage}
         </div>
       ) : null}

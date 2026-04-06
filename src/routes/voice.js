@@ -9,6 +9,64 @@ const router = Router();
 const serializeToolResult = (result) =>
   typeof result === 'string' ? result : JSON.stringify(result);
 
+const formatToolResultForVoice = (toolName, result) => {
+  if (!result || typeof result === 'string') {
+    return serializeToolResult(result);
+  }
+
+  if (toolName === 'get_available_slots') {
+    if (result.error) {
+      return serializeToolResult({
+        error: result.error,
+        provider_name: result.provider_name || null,
+        specialty: result.specialty || null,
+        next_available_days: result.next_available_days || [],
+        message: result.message || result.summary || 'Unable to retrieve slots.'
+      });
+    }
+
+    return serializeToolResult({
+      success: true,
+      provider_name: result.provider_name,
+      specialty: result.specialty,
+      message: result.summary,
+      voice_booking_hint:
+        'Read the numbered options aloud. When the patient chooses a number, call book_appointment using option_number from the chosen option.',
+      options: (result.booking_options || []).map((option) => ({
+        option_number: option.option_number,
+        slot_id: option.slot_id,
+        provider_id: option.provider_id,
+        provider_name: option.provider_name,
+        specialty: option.specialty,
+        spoken_text: option.spoken_text
+      }))
+    });
+  }
+
+  if (toolName === 'book_appointment') {
+    if (result.error) {
+      return serializeToolResult({
+        error: result.error,
+        missing: result.missing || [],
+        message: result.message || 'Unable to complete booking.'
+      });
+    }
+
+    return serializeToolResult({
+      success: true,
+      appointment_id: result.appointment_id,
+      doctor: result.doctor || result.provider_name,
+      specialty: result.specialty || result.provider_specialty,
+      date: result.date,
+      time: result.time,
+      patient_name: result.patient_name || result.patient_first_name,
+      message: result.message || result.confirmation_message
+    });
+  }
+
+  return serializeToolResult(result);
+};
+
 const normalizeBoolean = (value) => {
   if (typeof value === 'boolean') {
     return value;
@@ -280,7 +338,7 @@ router.post('/webhook/tool-call', async (request, response) => {
     logger.info(`[voice-tool] ${tool_name} completed successfully`);
 
     return response.json({
-      result: serializeToolResult(toolResult)
+      result: formatToolResultForVoice(tool_name, toolResult)
     });
   } catch (error) {
     logger.error(`[voice-tool] ${tool_name} failed: ${error.message}`);

@@ -105,6 +105,7 @@ const TOOL_DEFINITIONS = [
       parameters: {
         type: 'object',
         properties: {
+          option_number: { type: 'integer' },
           slot_id: { type: 'string' },
           provider_id: { type: 'string' },
           patient_first_name: { type: 'string' },
@@ -172,6 +173,8 @@ const FALLBACK_SCHEDULING_REPLY =
 
 const VOICE_HANDOFF_REPLY =
   "Of course! I can have our AI assistant call you right now to continue this conversation by voice. Just click the 'Call me instead' button on the left, and you'll receive a call at the phone number you provided. The assistant will have full context of our conversation.";
+
+const recentAvailabilityBySession = new Map();
 
 const normalizeTokens = (value = '') =>
   value
@@ -260,6 +263,13 @@ const SPECIALTY_KEYWORD_MAP = {
   lesion: 'dermatologist',
   lesions: 'dermatologist',
   dermatology: 'dermatologist'
+};
+
+const SPECIALTY_QUERY_ALIASES = {
+  cardiologist: ['cardiologist', 'cardiology'],
+  orthopedist: ['orthopedist', 'orthopedics', 'orthopedic'],
+  dermatologist: ['dermatologist', 'dermatology'],
+  neurologist: ['neurologist', 'neurology', 'neurological']
 };
 
 const OUT_OF_SCOPE_KEYWORDS = [
@@ -487,6 +497,101 @@ const buildNextAvailableDays = (slots = []) => {
   return uniqueDays.slice(0, 2);
 };
 
+const looksLikeUuid = (value = '') =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    String(value).trim()
+  );
+
+const buildBookingOptions = (formattedOptions = []) =>
+  formattedOptions.map((option) => ({
+    option_number: option.option_number,
+    slot_id: option.slot_id,
+    provider_id: option.provider_id,
+    provider_name: option.provider_name,
+    specialty: option.specialty,
+    slot_datetime: option.slot_datetime,
+    spoken_text: option.text
+  }));
+
+const storeRecentAvailability = (sessionId, bookingOptions = []) => {
+  if (!sessionId || !bookingOptions.length) {
+    return;
+  }
+
+  recentAvailabilityBySession.set(sessionId, {
+    savedAt: Date.now(),
+    bookingOptions
+  });
+};
+
+const getRecentAvailability = (sessionId) => {
+  if (!sessionId) {
+    return null;
+  }
+
+  const entry = recentAvailabilityBySession.get(sessionId);
+
+  if (!entry) {
+    return null;
+  }
+
+  if (Date.now() - entry.savedAt > 1000 * 60 * 60) {
+    recentAvailabilityBySession.delete(sessionId);
+    return null;
+  }
+
+  return entry.bookingOptions;
+};
+
+const resolveBookingSelection = ({
+  session_id,
+  slot_id,
+  provider_id,
+  option_number
+}) => {
+  const bookingOptions = getRecentAvailability(session_id);
+
+  if (!bookingOptions?.length) {
+    return null;
+  }
+
+  const numericSelection =
+    option_number ||
+    (/^\d+$/.test(String(slot_id || '').trim())
+      ? Number.parseInt(String(slot_id).trim(), 10)
+      : null);
+
+  if (numericSelection) {
+    const optionMatch = bookingOptions.find(
+      (option) => option.option_number === numericSelection
+    );
+
+    if (optionMatch) {
+      return optionMatch;
+    }
+  }
+
+  if (slot_id && looksLikeUuid(slot_id)) {
+    const slotMatch = bookingOptions.find((option) => option.slot_id === slot_id);
+
+    if (slotMatch) {
+      return slotMatch;
+    }
+  }
+
+  if (provider_id && looksLikeUuid(provider_id)) {
+    const providerMatch = bookingOptions.find(
+      (option) => option.provider_id === provider_id
+    );
+
+    if (providerMatch) {
+      return providerMatch;
+    }
+  }
+
+  return null;
+};
+
 const buildFallbackReply = async (sessionId, userMessage) => {
   const normalized = userMessage.toLowerCase();
   const dobCandidate =
@@ -608,6 +713,7 @@ export const getSessionState = async ({ session_id }) => {
 };
 
 export const getAvailableSlots = async ({
+  session_id = '',
   body_part,
   preferred_day = '',
   preferred_time = ''
@@ -620,9 +726,9 @@ export const getAvailableSlots = async ({
   `;
 
   if (specialty) {
-    providerParams.push(specialty);
+    providerParams.push(SPECIALTY_QUERY_ALIASES[specialty] || [specialty]);
     providerQuery += `
-      WHERE LOWER(specialty) = $1
+      WHERE LOWER(specialty) = ANY($1::text[])
       ORDER BY name
     `;
   } else {
@@ -766,6 +872,7 @@ export const getAvailableSlots = async ({
       text: `${index + 1}. ${formatSlotDateTime(slot.slot_datetime)}`,
       detailed_text: `${index + 1}. ${formatSlotDateTime(slot.slot_datetime)} - ${slot.provider_name} (${slot.specialty})`
     }));
+  const bookingOptions = buildBookingOptions(formattedOptions);
 
   const summary = formattedOptions.length
     ? `I have the following available with ${primaryProvider.name}:\n${formattedOptions
@@ -774,6 +881,10 @@ export const getAvailableSlots = async ({
     : 'I found matching specialists, but no available slots matched the preferred day or time.';
 
   if (!formattedOptions.length) {
+    if (session_id) {
+      recentAvailabilityBySession.delete(session_id);
+    }
+
     const nextAvailableDays = buildNextAvailableDays(primaryProviderFutureSlots);
 
     return {
@@ -799,6 +910,8 @@ export const getAvailableSlots = async ({
     };
   }
 
+  storeRecentAvailability(session_id, bookingOptions);
+
   return {
     body_part,
     matched_specialty: specialty || primaryProvider.specialty.toLowerCase(),
@@ -815,9 +928,12 @@ export const getAvailableSlots = async ({
         minute: '2-digit'
       }),
       datetime_raw: option.slot_datetime
-    })),
+      })),
     providers: providerMatches,
     formatted_options: formattedOptions,
+    booking_options: bookingOptions,
+    voice_booking_hint:
+      'Read the numbered options aloud. When the patient chooses a number, call book_appointment with that option_number or the matching slot_id and provider_id.',
     summary
   };
 };
@@ -921,6 +1037,7 @@ export const bookWaitlist = async ({
 export const bookAppointment = async ({
   slot_id,
   provider_id,
+  option_number,
   patient_first_name,
   patient_last_name,
   patient_dob,
@@ -932,6 +1049,7 @@ export const bookAppointment = async ({
 }) => {
   logger.info(`[BOOK] Attempting to book: ${JSON.stringify({
     session_id,
+    option_number,
     slot_id,
     provider_id,
     patient_first_name,
@@ -943,15 +1061,28 @@ export const bookAppointment = async ({
     sms_opted_in
   })}`);
 
+  const resolvedSelection = resolveBookingSelection({
+    session_id,
+    slot_id,
+    provider_id,
+    option_number
+  });
+  const resolvedSlotId =
+    resolvedSelection?.slot_id ||
+    (slot_id && looksLikeUuid(slot_id) ? slot_id : '');
+  const resolvedProviderId =
+    resolvedSelection?.provider_id ||
+    (provider_id && looksLikeUuid(provider_id) ? provider_id : '');
+
   const missing = [];
 
   if (!session_id) {
     missing.push('session_id');
   }
-  if (!slot_id) {
+  if (!resolvedSlotId) {
     missing.push('slot_id');
   }
-  if (!provider_id) {
+  if (!resolvedProviderId) {
     missing.push('provider_id');
   }
   if (!patient_first_name) {
@@ -992,7 +1123,7 @@ export const bookAppointment = async ({
       WHERE provider_slots.id = $1
         AND provider_slots.is_available = TRUE
     `,
-    [slot_id]
+    [resolvedSlotId]
   );
 
   if (!initialSlotCheck.rows.length) {
@@ -1007,9 +1138,9 @@ export const bookAppointment = async ({
         FROM provider_slots
         JOIN providers
           ON providers.id = provider_slots.provider_id
-        WHERE provider_slots.id = $1
+      WHERE provider_slots.id = $1
       `,
-      [slot_id]
+      [resolvedSlotId || slot_id]
     );
 
     if (anySlotResult.rows.length && !anySlotResult.rows[0].is_available) {
@@ -1023,20 +1154,21 @@ export const bookAppointment = async ({
     return {
       error: 'slot_not_found',
       message: 'Could not find that slot. Let me show you available times again.',
-      slot_id
+      slot_id: resolvedSlotId || slot_id,
+      option_number: option_number || null
     };
   }
 
   const selectedSlot = initialSlotCheck.rows[0];
-  const resolvedProviderId = selectedSlot.provider_id;
+  const selectedProviderId = selectedSlot.provider_id;
   const resolvedProviderName = selectedSlot.provider_name;
   const resolvedSpecialty = selectedSlot.specialty;
   const normalizedSmsOptIn =
     sms_opted_in === true || sms_opted_in === 'true';
 
-  if (provider_id && provider_id !== resolvedProviderId) {
+  if (resolvedProviderId && resolvedProviderId !== selectedProviderId) {
     logger.warn(
-      `[BOOK] Provider mismatch for slot ${slot_id}: received ${provider_id}, using ${resolvedProviderId}.`
+      `[BOOK] Provider mismatch for slot ${resolvedSlotId}: received ${resolvedProviderId}, using ${selectedProviderId}.`
     );
   }
 
@@ -1104,12 +1236,12 @@ export const bookAppointment = async ({
           providers.name AS provider_name,
           providers.specialty
         FROM provider_slots
-        JOIN providers
+      JOIN providers
           ON providers.id = provider_slots.provider_id
         WHERE provider_slots.id = $1
         FOR UPDATE
       `,
-      [slot_id]
+      [resolvedSlotId]
     );
 
     if (!lockedSlotResult.rows.length) {
@@ -1117,7 +1249,8 @@ export const bookAppointment = async ({
       return {
         error: 'slot_not_found',
         message: 'Could not find that slot. Let me show you available times again.',
-        slot_id
+        slot_id: resolvedSlotId,
+        option_number: option_number || null
       };
     }
 
@@ -1128,7 +1261,8 @@ export const bookAppointment = async ({
       return {
         error: 'slot_taken',
         message: 'That slot was just taken. Let me find you another available time.',
-        slot_id
+        slot_id: resolvedSlotId,
+        option_number: option_number || null
       };
     }
 
@@ -1138,7 +1272,7 @@ export const bookAppointment = async ({
         SET is_available = FALSE
         WHERE id = $1
       `,
-      [slot_id]
+      [resolvedSlotId]
     );
 
     const appointmentResult = await client.query(
@@ -1162,7 +1296,7 @@ export const bookAppointment = async ({
       [
         session_id,
         lockedSlot.provider_id,
-        slot_id,
+        resolvedSlotId,
         patient_first_name,
         patient_last_name,
         patient_dob || null,
@@ -1220,7 +1354,8 @@ export const bookAppointment = async ({
       success: true,
       appointment_id: appointment.id,
       session_id,
-      slot_id,
+      slot_id: resolvedSlotId,
+      option_number: option_number || resolvedSelection?.option_number || null,
       provider_id: lockedSlot.provider_id,
       provider_name: lockedSlot.provider_name,
       provider_specialty: lockedSlot.specialty,
@@ -1521,7 +1656,14 @@ Write a concise welcome-back message that feels natural and ready to continue th
 
       switch (toolName) {
         case 'get_available_slots':
-          toolResult = await this.toolHandlers.get_available_slots(parsedArguments);
+          toolResult = await this.toolHandlers.get_available_slots({
+            session_id: sessionId,
+            ...parsedArguments
+          });
+          parsedArguments = {
+            session_id: sessionId,
+            ...parsedArguments
+          };
           break;
         case 'book_appointment': {
           const mergedArguments = {

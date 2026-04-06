@@ -873,25 +873,25 @@ export default function PatientChat() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(103,215,196,0.18),_transparent_24%),radial-gradient(circle_at_85%_10%,_rgba(204,184,171,0.18),_transparent_22%),linear-gradient(180deg,#F7FAF6_0%,#EEF3EC_100%)] text-slate-900">
-      <header className="flex h-14 items-center justify-between border-b border-white/80 bg-white/80 px-4 backdrop-blur md:px-6">
+      <header className="flex h-14 items-center justify-between border-b border-black/10 bg-[linear-gradient(180deg,#173032_0%,#1E3B3D_100%)] px-4 shadow-[0_14px_36px_rgba(18,37,38,0.22)] md:px-6">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => setIsSidebarOpen(true)}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition hover:bg-white md:hidden"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-white/75 transition hover:bg-white/10 hover:text-white md:hidden"
             aria-label="Open sidebar"
           >
             <MenuIcon />
           </button>
           <div>
-            <p className="text-sm font-semibold tracking-[0.18em] text-[#111827]">GREENFIELD</p>
-            <p className="text-[11px] text-slate-400">Medical Practice</p>
+            <p className="text-sm font-semibold tracking-[0.18em] text-white">GREENFIELD</p>
+            <p className="text-[11px] text-white/55">Medical Practice</p>
           </div>
         </div>
 
         <Link
           to="/admin"
-          className="text-sm font-medium text-slate-500 transition hover:text-slate-900"
+          className="text-sm font-medium text-white/70 transition hover:text-white"
         >
           Admin Dashboard
         </Link>

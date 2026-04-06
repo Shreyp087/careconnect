@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const SESSION_STORAGE_KEY = 'careconnect-session-id';
 const HIDDEN_GREETING_MESSAGE = 'hello';
@@ -171,6 +171,8 @@ function MessageItem({ message }) {
 }
 
 export default function PatientChat() {
+  const isSendingRef = useRef(false);
+  const hasInitialized = useRef(false);
   const [sessionId, setSessionId] = useState('');
   const [messages, setMessages] = useState([]);
   const [messageInput, setMessageInput] = useState('');
@@ -190,6 +192,12 @@ export default function PatientChat() {
   const canInitiateVoiceCall = Boolean(patientPhone);
 
   useEffect(() => {
+    if (hasInitialized.current) {
+      return undefined;
+    }
+
+    hasInitialized.current = true;
+
     const syncSessionState = async (activeSessionId) => {
       try {
         const state = await apiRequest(`/api/session/${activeSessionId}`);
@@ -351,6 +359,13 @@ export default function PatientChat() {
       return;
     }
 
+    if (isSendingRef.current) {
+      console.warn('[CHAT] Message blocked — already sending');
+      return;
+    }
+
+    isSendingRef.current = true;
+
     const optimisticMessage = buildLocalMessage('user', trimmedMessage);
 
     if (!options.silentUserMessage) {
@@ -392,16 +407,28 @@ export default function PatientChat() {
         setIntakeComplete(true);
       }
     } catch (messageError) {
+      console.error('[CHAT ERROR]', messageError);
       setError(messageError.message);
+
+      if (!options.silentUserMessage) {
+        setMessages((currentMessages) => [
+          ...currentMessages,
+          buildLocalMessage(
+            'assistant',
+            "I'm having a moment of difficulty. Please try again."
+          )
+        ]);
+      }
     } finally {
       setIsTyping(false);
+      isSendingRef.current = false;
     }
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
 
-    if (loadingSession || isTyping) {
+    if (loadingSession || isTyping || isSendingRef.current) {
       return;
     }
 
@@ -457,7 +484,7 @@ export default function PatientChat() {
   };
 
   const handleComposerKeyDown = (event) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Enter' && !event.shiftKey && !isSendingRef.current) {
       event.preventDefault();
       handleSubmit(event);
     }
@@ -659,13 +686,18 @@ export default function PatientChat() {
                     placeholder="Tell Aria what you need help with today..."
                     rows={2}
                     className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm text-slate-900 outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
-                    disabled={loadingSession || isTyping}
+                    disabled={loadingSession || isTyping || isSendingRef.current}
                   />
                 </div>
                 <button
                   type="submit"
                   className="inline-flex h-[50px] items-center justify-center rounded-2xl bg-sky-500 px-5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-sky-600 focus:outline-none focus:ring-4 focus:ring-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={!messageInput.trim() || loadingSession || isTyping}
+                  disabled={
+                    !messageInput.trim() ||
+                    loadingSession ||
+                    isTyping ||
+                    isSendingRef.current
+                  }
                 >
                   Send
                 </button>

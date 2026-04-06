@@ -930,27 +930,118 @@ export const bookAppointment = async ({
   session_id,
   sms_opted_in
 }) => {
-  if (
-    !slot_id ||
-    !provider_id ||
-    !patient_first_name ||
-    !patient_last_name ||
-    !session_id
-  ) {
-    throw new Error(
-      'slot_id, provider_id, patient_first_name, patient_last_name, and session_id are required.'
-    );
+  logger.info(`[BOOK] Attempting to book: ${JSON.stringify({
+    session_id,
+    slot_id,
+    provider_id,
+    patient_first_name,
+    patient_last_name,
+    patient_dob,
+    patient_phone,
+    patient_email,
+    reason,
+    sms_opted_in
+  })}`);
+
+  const missing = [];
+
+  if (!session_id) {
+    missing.push('session_id');
+  }
+  if (!slot_id) {
+    missing.push('slot_id');
+  }
+  if (!provider_id) {
+    missing.push('provider_id');
+  }
+  if (!patient_first_name) {
+    missing.push('patient_first_name');
+  }
+  if (!patient_last_name) {
+    missing.push('patient_last_name');
+  }
+  if (!patient_email) {
+    missing.push('patient_email');
+  }
+
+  if (missing.length) {
+    logger.error(`[BOOK] Missing fields: ${missing.join(', ')}`);
+    return {
+      error: 'missing_fields',
+      missing,
+      message: `Cannot book — missing: ${missing.join(', ')}. Please collect these from the patient.`
+    };
   }
 
   if (patient_dob && !isValidDobFormat(patient_dob)) {
-    throw createBusinessError(
-      'Please re-enter the date of birth in MM/DD/YYYY format.',
-      'invalid_dob'
+    return {
+      error: 'invalid_dob',
+      message: 'Please re-enter the date of birth in MM/DD/YYYY format.'
+    };
+  }
+
+  const initialSlotCheck = await query(
+    `
+      SELECT
+        provider_slots.*,
+        providers.name AS provider_name,
+        providers.specialty
+      FROM provider_slots
+      JOIN providers
+        ON providers.id = provider_slots.provider_id
+      WHERE provider_slots.id = $1
+        AND provider_slots.is_available = TRUE
+    `,
+    [slot_id]
+  );
+
+  if (!initialSlotCheck.rows.length) {
+    logger.warn('[BOOK] Slot not found by available ID, checking full slot record.');
+
+    const anySlotResult = await query(
+      `
+        SELECT
+          provider_slots.*,
+          providers.name AS provider_name,
+          providers.specialty
+        FROM provider_slots
+        JOIN providers
+          ON providers.id = provider_slots.provider_id
+        WHERE provider_slots.id = $1
+      `,
+      [slot_id]
+    );
+
+    if (anySlotResult.rows.length && !anySlotResult.rows[0].is_available) {
+      return {
+        error: 'slot_taken',
+        message: 'That slot was just taken. Let me find you another available time.',
+        slot_id
+      };
+    }
+
+    return {
+      error: 'slot_not_found',
+      message: 'Could not find that slot. Let me show you available times again.',
+      slot_id
+    };
+  }
+
+  const selectedSlot = initialSlotCheck.rows[0];
+  const resolvedProviderId = selectedSlot.provider_id;
+  const resolvedProviderName = selectedSlot.provider_name;
+  const resolvedSpecialty = selectedSlot.specialty;
+  const normalizedSmsOptIn =
+    sms_opted_in === true || sms_opted_in === 'true';
+
+  if (provider_id && provider_id !== resolvedProviderId) {
+    logger.warn(
+      `[BOOK] Provider mismatch for slot ${slot_id}: received ${provider_id}, using ${resolvedProviderId}.`
     );
   }
 
   const client = await pool.connect();
-  let confirmationPayload = null;
+  let bookingPayload = null;
 
   try {
     await client.query('BEGIN');
@@ -966,14 +1057,17 @@ export const bookAppointment = async ({
     );
 
     if (!sessionResult.rows.length) {
-      throw new Error('Session not found.');
+      await client.query('ROLLBACK');
+      return {
+        error: 'session_not_found',
+        message: 'Session not found.'
+      };
     }
 
     const existingAppointmentResult = await client.query(
       `
         SELECT
           appointments.id,
-          appointments.status,
           providers.name AS provider_name,
           provider_slots.slot_datetime
         FROM appointments
@@ -992,47 +1086,51 @@ export const bookAppointment = async ({
 
     if (existingAppointmentResult.rows.length) {
       const existingAppointment = existingAppointmentResult.rows[0];
-
-      throw createBusinessError(
-        `You already have an appointment with ${existingAppointment.provider_name} on ${formatSlotDateTime(
+      await client.query('ROLLBACK');
+      return {
+        error: 'duplicate_appointment',
+        message: `You already have an appointment with ${existingAppointment.provider_name} on ${formatSlotDateTime(
           existingAppointment.slot_datetime
         )}. Would you like help rescheduling?`,
-        'duplicate_appointment',
-        {
-          existing_provider_name: existingAppointment.provider_name,
-          existing_slot_datetime: existingAppointment.slot_datetime
-        }
-      );
+        existing_provider_name: existingAppointment.provider_name,
+        existing_slot_datetime: existingAppointment.slot_datetime
+      };
     }
 
-    const slotResult = await client.query(
+    const lockedSlotResult = await client.query(
       `
         SELECT
-          provider_slots.id,
-          provider_slots.provider_id,
-          provider_slots.slot_datetime,
+          provider_slots.*,
           providers.name AS provider_name,
           providers.specialty
         FROM provider_slots
         JOIN providers
           ON providers.id = provider_slots.provider_id
         WHERE provider_slots.id = $1
-          AND provider_slots.provider_id = $2
-          AND provider_slots.is_available = TRUE
-          AND provider_slots.slot_datetime > NOW()
         FOR UPDATE
       `,
-      [slot_id, provider_id]
+      [slot_id]
     );
 
-    if (!slotResult.rows.length) {
-      throw createBusinessError(
-        'The selected appointment slot is no longer available.',
-        'slot_unavailable'
-      );
+    if (!lockedSlotResult.rows.length) {
+      await client.query('ROLLBACK');
+      return {
+        error: 'slot_not_found',
+        message: 'Could not find that slot. Let me show you available times again.',
+        slot_id
+      };
     }
 
-    const selectedSlot = slotResult.rows[0];
+    const lockedSlot = lockedSlotResult.rows[0];
+
+    if (!lockedSlot.is_available) {
+      await client.query('ROLLBACK');
+      return {
+        error: 'slot_taken',
+        message: 'That slot was just taken. Let me find you another available time.',
+        slot_id
+      };
+    }
 
     await client.query(
       `
@@ -1055,22 +1153,23 @@ export const bookAppointment = async ({
           patient_phone,
           patient_email,
           reason,
-          sms_opted_in
+          sms_opted_in,
+          status
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'confirmed')
         RETURNING *
       `,
       [
         session_id,
-        provider_id,
+        lockedSlot.provider_id,
         slot_id,
         patient_first_name,
         patient_last_name,
         patient_dob || null,
         patient_phone || null,
-        patient_email || null,
-        reason || null,
-        Boolean(sms_opted_in)
+        patient_email,
+        reason || 'General appointment',
+        normalizedSmsOptIn
       ]
     );
 
@@ -1080,100 +1179,111 @@ export const bookAppointment = async ({
       `
         UPDATE sessions
         SET
-          patient_first_name = $2,
-          patient_last_name = $3,
-          patient_dob = $4,
-          patient_phone = $5,
-          patient_email = $6,
-          appointment_id = $7,
+          appointment_id = $2,
           intake_complete = TRUE,
+          patient_first_name = $3,
+          patient_last_name = $4,
+          patient_dob = $5,
+          patient_phone = $6,
+          patient_email = $7,
           updated_at = NOW()
         WHERE id = $1
       `,
       [
         session_id,
+        appointment.id,
         patient_first_name,
         patient_last_name,
         patient_dob || null,
         patient_phone || null,
-        patient_email || null,
-        appointment.id
+        patient_email
       ]
     );
 
     await client.query('COMMIT');
 
-    confirmationPayload = {
+    const appointmentDate = new Date(lockedSlot.slot_datetime).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      timeZone: 'America/New_York'
+    });
+    const appointmentTime = new Date(lockedSlot.slot_datetime).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'America/New_York'
+    });
+
+    bookingPayload = {
+      success: true,
       appointment_id: appointment.id,
       session_id,
-      provider_id,
-      provider_name: selectedSlot.provider_name,
-      provider_specialty: selectedSlot.specialty,
       slot_id,
-      slot_datetime: selectedSlot.slot_datetime,
+      provider_id: lockedSlot.provider_id,
+      provider_name: lockedSlot.provider_name,
+      provider_specialty: lockedSlot.specialty,
+      specialty: lockedSlot.specialty,
+      doctor: lockedSlot.provider_name,
+      date: appointmentDate,
+      time: appointmentTime,
+      slot_datetime: lockedSlot.slot_datetime,
+      patient_name: patient_first_name,
       patient_first_name,
       patient_last_name,
-      patient_dob,
-      patient_phone,
+      patient_dob: patient_dob || null,
+      patient_phone: patient_phone || null,
       patient_email,
-      reason,
-      sms_opted_in: Boolean(sms_opted_in),
+      email: patient_email,
+      reason: reason || 'General appointment',
+      sms_opted_in: normalizedSmsOptIn,
       address: OFFICE_INFO.address,
       office_phone: OFFICE_INFO.phone,
-      confirmation_message: `Booked with ${selectedSlot.provider_name} on ${formatSlotDateTime(
-        selectedSlot.slot_datetime
+      message: 'Appointment successfully booked',
+      confirmation_message: `Booked with ${lockedSlot.provider_name} on ${formatSlotDateTime(
+        lockedSlot.slot_datetime
       )}.`
     };
   } catch (error) {
     await client.query('ROLLBACK');
+    logger.error('[BOOK TRANSACTION ERROR]', error.message, error.stack);
     throw error;
   } finally {
     client.release();
   }
 
-  try {
-    await sendAppointmentConfirmation({
-      to: confirmationPayload.patient_email,
-      patientName: confirmationPayload.patient_first_name,
-      doctorName: confirmationPayload.provider_name,
-      specialty: confirmationPayload.provider_specialty,
-      appointmentDate: new Date(confirmationPayload.slot_datetime).toLocaleDateString('en-US', {
-        weekday: 'long',
-        month: 'long',
-        day: 'numeric'
-      }),
-      appointmentTime: new Date(confirmationPayload.slot_datetime).toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit'
-      }),
-      address: confirmationPayload.address
+  logger.info(`[BOOK] Success! Appointment ID: ${bookingPayload.appointment_id}`);
+
+  Promise.resolve(
+    sendAppointmentConfirmation({
+      to: bookingPayload.patient_email,
+      patientName: bookingPayload.patient_first_name,
+      doctorName: resolvedProviderName,
+      specialty: resolvedSpecialty,
+      appointmentDate: bookingPayload.date,
+      appointmentTime: bookingPayload.time,
+      address: OFFICE_INFO.address
+    })
+  ).catch((error) => {
+    logger.error('[EMAIL ERROR]', error.message);
+  });
+
+  if (normalizedSmsOptIn) {
+    Promise.resolve(
+      sendAppointmentSMS({
+        to: bookingPayload.patient_phone,
+        patientName: bookingPayload.patient_first_name,
+        doctorName: resolvedProviderName,
+        appointmentDate: bookingPayload.date,
+        appointmentTime: bookingPayload.time
+      })
+    ).catch((error) => {
+      logger.error('[SMS ERROR]', error.message);
     });
-  } catch (error) {
-    logger.error('Appointment confirmation email failed:', error.message);
   }
 
-  if (confirmationPayload.sms_opted_in) {
-    try {
-      await sendAppointmentSMS({
-        to: confirmationPayload.patient_phone,
-        patientName: confirmationPayload.patient_first_name,
-        doctorName: confirmationPayload.provider_name,
-        appointmentDate: new Date(confirmationPayload.slot_datetime).toLocaleDateString('en-US', {
-          weekday: 'long',
-          month: 'long',
-          day: 'numeric'
-        }),
-        appointmentTime: new Date(confirmationPayload.slot_datetime).toLocaleTimeString('en-US', {
-          hour: 'numeric',
-          minute: '2-digit'
-        })
-      });
-    } catch (error) {
-      logger.error('Appointment confirmation SMS failed:', error.message);
-    }
-  }
-
-  return confirmationPayload;
+  return bookingPayload;
 };
 
 export const ariaToolHandlers = {

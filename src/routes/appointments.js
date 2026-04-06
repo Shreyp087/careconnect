@@ -6,6 +6,8 @@ import { sendAppointmentConfirmation } from '../services/sendgrid.js';
 import { sendAppointmentSMS } from '../services/twilio.js';
 
 const router = Router();
+const OFFICE_ADDRESS =
+  process.env.OFFICE_ADDRESS || '123 Wellness Drive, Suite 400, Springfield';
 
 const formatAppointmentDate = (value) =>
   new Date(value).toLocaleDateString('en-US', {
@@ -111,6 +113,26 @@ router.post('/', async (request, response, next) => {
 
     const appointment = await bookAppointment(payload);
 
+    if (appointment?.error) {
+      if (appointment.error === 'missing_fields' || appointment.error === 'invalid_dob') {
+        return response.status(400).json(appointment);
+      }
+
+      if (appointment.error === 'session_not_found') {
+        return response.status(404).json(appointment);
+      }
+
+      if (
+        appointment.error === 'slot_taken' ||
+        appointment.error === 'slot_not_found' ||
+        appointment.error === 'duplicate_appointment'
+      ) {
+        return response.status(409).json(appointment);
+      }
+
+      return response.status(400).json(appointment);
+    }
+
     response.status(201).json({
       id: appointment.appointment_id,
       ...appointment
@@ -157,7 +179,7 @@ router.post('/confirm-email', async (request, response, next) => {
       specialty: appointment.specialty,
       appointmentDate: formatAppointmentDate(appointment.slot_datetime),
       appointmentTime: formatAppointmentTime(appointment.slot_datetime),
-      address: '123 Wellness Drive, Suite 400, Springfield'
+      address: OFFICE_ADDRESS
     });
 
     response.json({

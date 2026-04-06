@@ -23,70 +23,80 @@ const OFFICE_INFO = {
   pharmacyPhone: '555-0199'
 };
 
-export const SYSTEM_PROMPT = `You are Aria, a warm and efficient patient scheduling assistant for Greenfield Medical Practice. Your name is Aria.
-## CRITICAL BOOKING RULES - READ CAREFULLY:
+export const SYSTEM_PROMPT = `You are Aria, a patient coordinator at Greenfield Medical Practice.
+You're warm, competent, and genuinely care about the people you talk to.
+You sound like a real person - not a chatbot, not a phone tree.
 
-When calling book_appointment, you MUST ONLY pass these fields:
-- option_number: the NUMBER the patient selected (1, 2, 3, 4, 5, or 6)
-- session_id: always use the literal string "SESSION_ID_FROM_CONTEXT"
-- sms_opted_in: true or false based on patient consent
-- reason: brief reason for visit
+## YOUR PERSONALITY
+- You're calm and unhurried. Never make anyone feel like a burden.
+- You use natural, conversational language. No corporate speak.
+- When someone shares a health concern, acknowledge it briefly before moving on.
+  Good: "Sorry to hear that - let's get you seen."
+  Bad: "I understand you are experiencing discomfort. I will now proceed to..."
+- Use the patient's first name naturally once you have it - not every message.
+- Never say "Absolutely!", "Certainly!", "Of course!", "Great question!" - they sound fake.
+- Don't repeat yourself. If something didn't work, don't say the same thing again.
+- Keep responses short. 2-4 sentences max unless listing slots.
 
-DO NOT pass slot_id, provider_id, or any UUID to book_appointment.
-DO NOT make up or guess slot_id values. NEVER pass times like "3 PM" as slot_id.
-The backend resolves the real slot from the option_number automatically.
+## WHAT YOU CAN HELP WITH
+1. Booking appointments with our 4 specialists
+2. Office hours, address, directions
+3. Prescription refill questions (direct to pharmacy)
+4. General practice questions
 
-## BOOKING FLOW:
+## OUR DOCTORS
+- Heart, chest, blood pressure, ECG, palpitations -> Dr. Sarah Chen (Cardiology)
+- Knee, back, leg, muscle, joint, bone, shoulder, spine -> Dr. Marcus Webb (Orthopedics)
+- Skin, rash, acne, hair loss, moles, eczema -> Dr. Priya Nair (Dermatology)
+- Headache, migraine, nerve pain, dizziness, memory -> Dr. James Okafor (Neurology)
 
-Step 1: When patient describes symptoms, call get_available_slots immediately.
-Step 2: Show the slots returned, numbered 1-6. Include full date AND time AND day.
-Format: "1. Monday, April 14 at 9:00 AM"
-Step 3: When patient picks a slot (by number, time, or description), call book_appointment with ONLY: option_number, session_id, sms_opted_in, reason.
-Step 4: After successful booking, confirm warmly with all details.
+If someone asks about something outside these specialties (stomach, eyes, dental, mental health, etc.):
+Say warmly: "We don't have that specialist here - [condition] is outside our four specialties
+(cardiology, orthopedics, dermatology, and neurology). For that, your primary care doctor would
+be a great first call. Is there anything else I can help with?"
 
-## SLOT SELECTION PARSING:
-- "option 2" / "the second one" / "2nd" -> option_number: 2
-- "1 PM" -> find which option number has 1:00 PM, use that number
+## BOOKING FLOW
+When someone wants an appointment:
+1. Figure out which doctor they need from what they describe
+2. Confirm the match casually: "Sounds like Dr. Webb would be the right fit - he's our orthopedist."
+3. Collect info ONE at a time, naturally:
+   - First name (then use it going forward)
+   - Last name
+   - Date of birth (MM/DD/YYYY)
+   - Phone number
+   - Email address
+4. Call get_available_slots - show 6 options with full date + time + day of week
+5. Let them pick - accept numbers, times, or descriptions ("the 1pm one", "Wednesday", "first available")
+6. Call book_appointment with option_number + session_id + sms_opted_in + reason
+7. Confirm warmly: "Done! You're booked with Dr. [Name] on [day], [date] at [time].
+   Confirmation email going to [email] now."
+
+## CRITICAL BOOKING RULES
+- NEVER pass slot_id or provider_id to book_appointment - only option_number
+- session_id = always "SESSION_ID_FROM_CONTEXT" (backend handles the real ID)
+- If booking fails once, call get_available_slots again and show fresh slots
+- If patient says "yes" / "confirm" / "that one" after you named a specific slot -> book it
+- "anytime" or "first available" -> option_number: 1
 - "the last one" -> option_number: 6
-- "anytime" / "any" / "first available" -> option_number: 1
-- "yes" / "confirm" / "book it" / "that one" -> use the LAST option number the patient referenced or confirmed
 
-## STATE AWARENESS:
-- You have access to the patient's name and info from earlier in the conversation
-- After a slot is shown, REMEMBER which options were presented
-- Never ask for info you already have (name, DOB, phone, email)
-- If patient already has a booked appointment and asks for another, treat it as a new separate booking
+## HANDLING RETURNING PATIENTS
+If they already have an appointment:
+"I see you already have an appointment with Dr. [Name] on [date]. Would you like to
+keep that, reschedule, or book a separate visit?"
 
-## DOCTORS:
-- Heart/chest/blood pressure/ECG -> Dr. Sarah Chen (Cardiologist)
-- Knee/back/bone/joint/shoulder -> Dr. Marcus Webb (Orthopedist)
-- Skin/rash/acne/hair/mole -> Dr. Priya Nair (Dermatologist)
-- Headache/migraine/nerve/dizzy/brain -> Dr. James Okafor (Neurologist)
+## PRESCRIPTION REFILLS
+"For refills, your best bet is to call your pharmacy directly - they can reach out
+to the doctor's office if they need authorization. Our pharmacy line is 555-0199."
 
-## DATE PREFERENCES:
-- "do you have Wednesday?" -> call get_available_slots with preferred_day: "Wednesday"
-- "week after" / "next week" -> call get_available_slots with preferred_after_date set to 7 days from the last slots shown
-- Always show the FULL date not just the time when showing filtered results
+## SAFETY - NON-NEGOTIABLE
+- Zero medical advice. Zero diagnoses. Zero treatment opinions.
+- If asked: "That's really a question for the doctor - I don't want to steer you wrong."
+- Emergency: "If this feels urgent or like an emergency, please call 911 or head to
+  the nearest ER right away. Don't wait."
 
-## CONVERSATION RULES:
-- Collect patient info ONE field at a time: first name -> last name -> DOB -> phone -> email
-- Once you have all info and slots are showing, DO NOT ask for info again
-- Use the patient's first name naturally
-- Never say "It seems there was an issue" repeatedly - if booking fails once, try with option_number only, don't keep re-showing slots
-- If patient says "yes" after you showed them a specific slot, that means confirm that slot
-
-## VOICE CALL FLOW:
-- If the patient says anything like "can you call me", "schedule a call", "phone call", "call me instead", or "prefer to talk", respond EXACTLY with:
-"Of course! I can have our AI assistant call you right now to continue this conversation by voice. Just click the 'Call me instead' button on the left, and you'll receive a call at the phone number you provided. The assistant will have full context of our conversation."
-- Do NOT tell them to call ${OFFICE_INFO.phone} for a voice call request.
-
-## SAFETY:
-- Never give medical advice, diagnoses, or treatment opinions
-- For emergencies: "Please call 911 or go to your nearest ER immediately"
-- For medical questions: "That's a question for your doctor - I want to make sure you get the right answer from a medical professional"
-
-Office: ${OFFICE_INFO.address}
-Phone: ${OFFICE_INFO.phone}
+## OFFICE INFO
+Address: ${process.env.OFFICE_ADDRESS || '123 Wellness Drive, Suite 400, Springfield'}
+Phone: ${process.env.OFFICE_PHONE || '555-0100'}
 Hours: Monday-Friday 8:00 AM-6:00 PM, Saturday 9:00 AM-1:00 PM`;
 
 const TOOL_DEFINITIONS = [
@@ -217,96 +227,226 @@ const normalizeTokens = (value = '') =>
     });
 
 const SPECIALTY_KEYWORD_MAP = {
-  headache: 'neurologist',
-  headaches: 'neurologist',
-  migraine: 'neurologist',
-  migraines: 'neurologist',
-  dizzy: 'neurologist',
-  dizziness: 'neurologist',
-  vertigo: 'neurologist',
-  concussion: 'neurologist',
-  brain: 'neurologist',
-  nerve: 'neurologist',
-  'nerve pain': 'neurologist',
-  numbness: 'neurologist',
-  tingling: 'neurologist',
-  memory: 'neurologist',
-  seizure: 'neurologist',
-  seizures: 'neurologist',
-  tremor: 'neurologist',
-  tremors: 'neurologist',
-  neurological: 'neurologist',
-  heart: 'cardiologist',
-  chest: 'cardiologist',
-  'chest pain': 'cardiologist',
-  cardiovascular: 'cardiologist',
-  palpitation: 'cardiologist',
-  palpitations: 'cardiologist',
-  'blood pressure': 'cardiologist',
-  hypertension: 'cardiologist',
-  cholesterol: 'cardiologist',
-  'shortness of breath': 'cardiologist',
-  cardiac: 'cardiologist',
-  'irregular heartbeat': 'cardiologist',
-  knee: 'orthopedist',
-  back: 'orthopedist',
-  'back pain': 'orthopedist',
-  spine: 'orthopedist',
-  shoulder: 'orthopedist',
-  hip: 'orthopedist',
-  joint: 'orthopedist',
-  'joint pain': 'orthopedist',
-  bone: 'orthopedist',
-  bones: 'orthopedist',
-  fracture: 'orthopedist',
-  fractures: 'orthopedist',
-  wrist: 'orthopedist',
-  ankle: 'orthopedist',
-  neck: 'orthopedist',
-  arthritis: 'orthopedist',
-  'sports injury': 'orthopedist',
-  'sports injuries': 'orthopedist',
-  orthopedic: 'orthopedist',
-  orthopedics: 'orthopedist',
-  skin: 'dermatologist',
-  rash: 'dermatologist',
-  acne: 'dermatologist',
-  hair: 'dermatologist',
-  'hair loss': 'dermatologist',
-  nail: 'dermatologist',
-  nails: 'dermatologist',
-  'nail problems': 'dermatologist',
-  mole: 'dermatologist',
-  moles: 'dermatologist',
-  eczema: 'dermatologist',
-  psoriasis: 'dermatologist',
-  itching: 'dermatologist',
-  itchy: 'dermatologist',
-  dryness: 'dermatologist',
-  lesion: 'dermatologist',
-  lesions: 'dermatologist',
-  dermatology: 'dermatologist'
+  // NEUROLOGY - Dr. James Okafor
+  headache: 'neurology',
+  headaches: 'neurology',
+  migraine: 'neurology',
+  migraines: 'neurology',
+  dizzy: 'neurology',
+  dizziness: 'neurology',
+  vertigo: 'neurology',
+  brain: 'neurology',
+  nerve: 'neurology',
+  nerves: 'neurology',
+  numbness: 'neurology',
+  tingling: 'neurology',
+  memory: 'neurology',
+  seizure: 'neurology',
+  seizures: 'neurology',
+  tremor: 'neurology',
+  tremors: 'neurology',
+  concussion: 'neurology',
+  neuropathy: 'neurology',
+  neurological: 'neurology',
+  ms: 'neurology',
+  parkinson: 'neurology',
+  stroke: 'neurology',
+  fainting: 'neurology',
+  blackout: 'neurology',
+  blackouts: 'neurology',
+
+  // CARDIOLOGY - Dr. Sarah Chen
+  heart: 'cardiology',
+  chest: 'cardiology',
+  cardiac: 'cardiology',
+  cardiovascular: 'cardiology',
+  palpitation: 'cardiology',
+  palpitations: 'cardiology',
+  'blood pressure': 'cardiology',
+  hypertension: 'cardiology',
+  cholesterol: 'cardiology',
+  'shortness of breath': 'cardiology',
+  arrhythmia: 'cardiology',
+  ecg: 'cardiology',
+  ekg: 'cardiology',
+  'irregular heartbeat': 'cardiology',
+  'heart rate': 'cardiology',
+  pulse: 'cardiology',
+  angina: 'cardiology',
+
+  // ORTHOPEDICS - Dr. Marcus Webb
+  knee: 'orthopedics',
+  back: 'orthopedics',
+  spine: 'orthopedics',
+  spinal: 'orthopedics',
+  joint: 'orthopedics',
+  joints: 'orthopedics',
+  shoulder: 'orthopedics',
+  hip: 'orthopedics',
+  hips: 'orthopedics',
+  bone: 'orthopedics',
+  bones: 'orthopedics',
+  fracture: 'orthopedics',
+  fractures: 'orthopedics',
+  wrist: 'orthopedics',
+  ankle: 'orthopedics',
+  elbow: 'orthopedics',
+  arthritis: 'orthopedics',
+  tendon: 'orthopedics',
+  ligament: 'orthopedics',
+  'sports injury': 'orthopedics',
+  orthopedic: 'orthopedics',
+  musculoskeletal: 'orthopedics',
+  neck: 'orthopedics',
+  foot: 'orthopedics',
+  feet: 'orthopedics',
+  leg: 'orthopedics',
+  legs: 'orthopedics',
+  'leg pain': 'orthopedics',
+  muscle: 'orthopedics',
+  muscles: 'orthopedics',
+  'muscle pain': 'orthopedics',
+  thigh: 'orthopedics',
+  calf: 'orthopedics',
+  hamstring: 'orthopedics',
+  quad: 'orthopedics',
+  shin: 'orthopedics',
+  limb: 'orthopedics',
+  sprain: 'orthopedics',
+  strain: 'orthopedics',
+  torn: 'orthopedics',
+  'lower back': 'orthopedics',
+  'upper back': 'orthopedics',
+  'arm pain': 'orthopedics',
+  arm: 'orthopedics',
+  hand: 'orthopedics',
+  finger: 'orthopedics',
+  fingers: 'orthopedics',
+  toe: 'orthopedics',
+  toes: 'orthopedics',
+  'hip replacement': 'orthopedics',
+  'knee replacement': 'orthopedics',
+  'physical therapy': 'orthopedics',
+
+  // DERMATOLOGY - Dr. Priya Nair
+  skin: 'dermatology',
+  rash: 'dermatology',
+  rashes: 'dermatology',
+  acne: 'dermatology',
+  hair: 'dermatology',
+  'hair loss': 'dermatology',
+  nail: 'dermatology',
+  nails: 'dermatology',
+  mole: 'dermatology',
+  moles: 'dermatology',
+  eczema: 'dermatology',
+  psoriasis: 'dermatology',
+  dermatitis: 'dermatology',
+  hives: 'dermatology',
+  itching: 'dermatology',
+  itchy: 'dermatology',
+  lesion: 'dermatology',
+  lesions: 'dermatology',
+  sunburn: 'dermatology',
+  wart: 'dermatology',
+  warts: 'dermatology',
+  fungal: 'dermatology',
+  ringworm: 'dermatology',
+  scalp: 'dermatology',
+  dryness: 'dermatology',
+  'dry skin': 'dermatology',
+  blemish: 'dermatology',
+  blemishes: 'dermatology',
+  spot: 'dermatology',
+  spots: 'dermatology',
+  breakout: 'dermatology',
+  pimple: 'dermatology',
+  pimples: 'dermatology',
+  allergy: 'dermatology',
+  'allergic reaction': 'dermatology',
+  'skin cancer': 'dermatology',
+  melanoma: 'dermatology'
 };
 
 const SPECIALTY_QUERY_ALIASES = {
-  cardiologist: ['cardiologist', 'cardiology'],
-  orthopedist: ['orthopedist', 'orthopedics', 'orthopedic'],
-  dermatologist: ['dermatologist', 'dermatology'],
-  neurologist: ['neurologist', 'neurology', 'neurological']
+  cardiology: ['cardiology', 'cardiologist', 'cardiac'],
+  orthopedics: ['orthopedics', 'orthopedist', 'orthopedic'],
+  dermatology: ['dermatology', 'dermatologist'],
+  neurology: ['neurology', 'neurologist', 'neurological'],
+  cardiologist: ['cardiology', 'cardiologist', 'cardiac'],
+  orthopedist: ['orthopedics', 'orthopedist', 'orthopedic'],
+  dermatologist: ['dermatology', 'dermatologist'],
+  neurologist: ['neurology', 'neurologist', 'neurological']
 };
 
 const OUT_OF_SCOPE_KEYWORDS = [
-  'dentist',
-  'dental',
-  'tooth',
-  'teeth',
+  'stomach',
+  'abdomen',
+  'abdominal',
+  'gut',
+  'digestive',
+  'digestion',
+  'nausea',
+  'vomiting',
+  'diarrhea',
+  'constipation',
+  'bowel',
+  'intestine',
+  'liver',
+  'kidney',
+  'bladder',
+  'urinary',
+  'urology',
+  'gastro',
   'eye',
+  'eyes',
   'vision',
-  'optometrist',
+  'sight',
+  'glasses',
+  'optometry',
+  'ophthalmology',
+  'ear',
+  'ears',
+  'hearing',
+  'nose',
+  'throat',
+  'ent',
+  'sinus',
+  'teeth',
+  'dental',
+  'dentist',
+  'gums',
+  'tooth',
+  'mental health',
+  'anxiety',
+  'depression',
   'psychiatry',
   'psychiatrist',
   'therapy',
-  'mental health'
+  'counseling',
+  'psychology',
+  'psychologist',
+  'gynecology',
+  'obgyn',
+  'pregnancy',
+  'fertility',
+  'pediatric',
+  'pediatrics',
+  'children',
+  'child doctor',
+  'endocrine',
+  'thyroid',
+  'diabetes',
+  'hormone',
+  'oncology',
+  'cancer',
+  'tumor',
+  'chemotherapy',
+  'lung',
+  'respiratory',
+  'breathing',
+  'asthma',
+  'pulmonary'
 ];
 
 const findMatchingProviders = (bodyPart = '') => {
@@ -1099,7 +1239,7 @@ export const getAvailableSlots = async (
   },
   sessionId = session_id
 ) => {
-  const activeSessionId = sessionId || session_id || '';
+  const activeSessionId = sessionId;
   const specialty = findMatchingProviders(body_part);
   const preferredAfterDate = parsePreferredAfterDate(preferred_after_date);
   const providerParams = [];
@@ -1168,7 +1308,7 @@ export const getAvailableSlots = async (
     const noMatchMessage = OUT_OF_SCOPE_KEYWORDS.some((keyword) =>
       body_part.toLowerCase().includes(keyword)
     )
-      ? "We don't have a specialist for that at our practice. I'd recommend contacting your primary care doctor for a referral."
+      ? `We don't have that specialist here - ${body_part} is outside our four specialties (cardiology, orthopedics, dermatology, and neurology). For that, your primary care doctor would be a great first call. Is there anything else I can help with?`
       : `We don't have a specialist for "${body_part}" at our practice. We have Cardiology (heart/chest), Orthopedics (bones/joints), Dermatology (skin/hair), and Neurology (headaches/nerves).`;
 
     return {
@@ -1333,19 +1473,26 @@ export const getAvailableSlots = async (
     preferred_time: preferred_time || null,
     provider_name: primaryProvider.name,
     specialty: primaryProvider.specialty,
-    slots: formattedOptions.map((option) => ({
-      option_number: option.option_number,
-      day: new Date(option.slot_datetime).toLocaleDateString('en-US', {
+    slots: formattedOptions.map((option) => {
+      const day = new Date(option.slot_datetime).toLocaleDateString('en-US', {
         weekday: 'long',
         timeZone: 'America/New_York'
-      }),
-      date: formatDayLabel(option.slot_datetime),
-      time: new Date(option.slot_datetime).toLocaleTimeString('en-US', {
+      });
+      const date = formatDayLabel(option.slot_datetime);
+      const time = new Date(option.slot_datetime).toLocaleTimeString('en-US', {
         hour: 'numeric',
         minute: '2-digit',
         timeZone: 'America/New_York'
-      })
-    })),
+      });
+
+      return {
+        option_number: option.option_number,
+        day,
+        date,
+        time,
+        display: `${option.option_number}. ${day}, ${date} at ${time}`
+      };
+    }),
     providers: providerMatches.map((provider) => ({
       provider_name: provider.provider_name,
       specialty: provider.specialty,
@@ -1363,7 +1510,7 @@ export const getAvailableSlots = async (
       }))
     })),
     instruction:
-      'Present these slots numbered 1-6. When the patient picks a number, call book_appointment with ONLY option_number and session_id. Do NOT pass slot_id or provider_id.',
+      'Show these slots in a clean numbered list. Use full date format. After listing, ask which works for them - keep it brief and natural.',
     summary
   };
 };

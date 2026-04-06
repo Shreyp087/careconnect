@@ -38,7 +38,8 @@ const formatToolResultForVoice = (toolName, result) => {
         day: option.day,
         date: option.date,
         time: option.time,
-        spoken_text: `${option.option_number}. ${option.date} at ${option.time}`
+        display: option.display,
+        spoken_text: option.display || `${option.option_number}. ${option.date} at ${option.time}`
       }))
     });
   }
@@ -332,9 +333,10 @@ router.post('/webhook/tool-call', async (request, response) => {
 
   try {
     const mergedToolInput = normalizeToolInput(request.body);
+    const sessionId = extractSessionId(request.body) || mergedToolInput.session_id || '';
     logger.info(`[voice-tool] Running ${tool_name}`);
 
-    const toolResult = await handler(mergedToolInput);
+    const toolResult = await handler(mergedToolInput, sessionId);
     logger.info(`[voice-tool] ${tool_name} completed successfully`);
 
     return response.json({

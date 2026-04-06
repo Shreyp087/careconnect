@@ -12,14 +12,14 @@ const chatService = new ChatService();
 
 const mapProviderRecommendations = (toolOutput) =>
   toolOutput?.providers?.map((provider) => ({
-    id: provider.provider_id,
+    id: provider.provider_id || provider.provider_name,
     name: provider.provider_name,
     specialty: provider.specialty,
     bio: provider.bio,
     body_parts: provider.body_parts || [],
     available_slots: (provider.slots || []).map((slot) => ({
-      id: slot.slot_id,
-      provider_id: slot.provider_id,
+      id: slot.slot_id || `option-${slot.option_number || slot.slot_datetime}`,
+      provider_id: slot.provider_id || provider.provider_id || provider.provider_name,
       slot_datetime: slot.slot_datetime
     }))
   })) || [];

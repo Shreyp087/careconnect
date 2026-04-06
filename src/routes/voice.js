@@ -31,14 +31,14 @@ const formatToolResultForVoice = (toolName, result) => {
       specialty: result.specialty,
       message: result.summary,
       voice_booking_hint:
-        'Read the numbered options aloud. When the patient chooses a number, call book_appointment using option_number from the chosen option.',
-      options: (result.booking_options || []).map((option) => ({
+        'Read the numbered options aloud. When the patient chooses a number, call book_appointment using only option_number from the chosen option.',
+      instruction: result.instruction,
+      options: (result.slots || []).map((option) => ({
         option_number: option.option_number,
-        slot_id: option.slot_id,
-        provider_id: option.provider_id,
-        provider_name: option.provider_name,
-        specialty: option.specialty,
-        spoken_text: option.spoken_text
+        day: option.day,
+        date: option.date,
+        time: option.time,
+        spoken_text: `${option.option_number}. ${option.date} at ${option.time}`
       }))
     });
   }

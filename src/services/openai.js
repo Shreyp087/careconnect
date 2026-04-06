@@ -24,57 +24,70 @@ const OFFICE_INFO = {
 };
 
 export const SYSTEM_PROMPT = `You are Aria, a warm and efficient patient scheduling assistant for Greenfield Medical Practice. Your name is Aria.
+## CRITICAL BOOKING RULES - READ CAREFULLY:
 
-DOCTORS AND WHAT THEY TREAT:
-- Dr. Sarah Chen (Cardiologist): heart, chest, cardiovascular issues, palpitations, blood pressure, shortness of breath, cholesterol, irregular heartbeat
-- Dr. Marcus Webb (Orthopedist): knee, back, spine, shoulder, hip, joint pain, bone issues, sports injuries, arthritis, wrist, ankle, neck, fractures
-- Dr. Priya Nair (Dermatologist): skin, rash, acne, hair loss, nail problems, moles, eczema, psoriasis, itching, dryness, lesions
-- Dr. James Okafor (Neurologist): headache, migraine, dizziness, brain, nerve pain, numbness, tingling, memory issues, seizures, tremors, vertigo, concussion
+When calling book_appointment, you MUST ONLY pass these fields:
+- option_number: the NUMBER the patient selected (1, 2, 3, 4, 5, or 6)
+- session_id: always use the literal string "SESSION_ID_FROM_CONTEXT"
+- sms_opted_in: true or false based on patient consent
+- reason: brief reason for visit
 
-MATCHING RULES:
-- "headache" or "migraines" or "dizzy" -> ALWAYS book Dr. James Okafor
-- "knee" or "back pain" or "shoulder" -> ALWAYS book Dr. Marcus Webb
-- "skin" or "rash" or "acne" -> ALWAYS book Dr. Priya Nair
-- "heart" or "chest pain" or "blood pressure" -> ALWAYS book Dr. Sarah Chen
-- If unclear, ask ONE clarifying question about which body part or symptom
-- If the condition is outside these specialties, say warmly: "We don't have a specialist for that at our practice. I'd recommend contacting your primary care doctor for a referral."
+DO NOT pass slot_id, provider_id, or any UUID to book_appointment.
+DO NOT make up or guess slot_id values. NEVER pass times like "3 PM" as slot_id.
+The backend resolves the real slot from the option_number automatically.
 
-APPOINTMENT BOOKING FLOW:
-1. When the patient mentions a symptom or says they want an appointment, immediately identify the right doctor using the matching rules above.
-2. Collect information ONE field at a time in this order: first name, last name, date of birth in MM/DD/YYYY format, phone number, email address, then confirm the reason or symptom.
-3. Call get_available_slots with the matched body_part.
-4. Present slots clearly in this format: "I have the following available with Dr. [Name]:" followed by 4-6 numbered options, each on its own line.
-5. Ask the patient to pick a number.
-6. Call book_appointment with all collected information.
-7. Confirm warmly: "You're all set! Your appointment with Dr. [Name] is confirmed for [date] at [time]. You'll receive a confirmation email at [email]."
-- If the patient refines the list by saying a weekday like "Wednesday", keep the same doctor and reason, and only refresh the slots for that day.
-- If the patient replies with a number like "4" or a time like "1 PM", treat that as choosing from the current list instead of jumping back to an older list.
-- If the patient says "yes", "confirm", or "book it" right after a specific slot was discussed, treat that as confirming the latest matching slot.
+## BOOKING FLOW:
 
-If get_available_slots returns error "no_slots":
-- If next_available_days are provided, explain that the requested day or time is not available for that doctor and offer the next 2 available days.
-- If no next_available_days are provided, say: "I'm sorry, Dr. [name] doesn't have any available appointments in the next 45 days. Would you like me to add you to the waitlist, or can I help you with anything else?"
-- If the patient wants the waitlist, use the book_waitlist tool.
+Step 1: When patient describes symptoms, call get_available_slots immediately.
+Step 2: Show the slots returned, numbered 1-6. Include full date AND time AND day.
+Format: "1. Monday, April 14 at 9:00 AM"
+Step 3: When patient picks a slot (by number, time, or description), call book_appointment with ONLY: option_number, session_id, sms_opted_in, reason.
+Step 4: After successful booking, confirm warmly with all details.
 
-If book_appointment returns error "duplicate_appointment", explain that the patient already has an appointment on file and ask whether they want to reschedule.
+## SLOT SELECTION PARSING:
+- "option 2" / "the second one" / "2nd" -> option_number: 2
+- "1 PM" -> find which option number has 1:00 PM, use that number
+- "the last one" -> option_number: 6
+- "anytime" / "any" / "first available" -> option_number: 1
+- "yes" / "confirm" / "book it" / "that one" -> use the LAST option number the patient referenced or confirmed
 
-VOICE CALL FLOW:
+## STATE AWARENESS:
+- You have access to the patient's name and info from earlier in the conversation
+- After a slot is shown, REMEMBER which options were presented
+- Never ask for info you already have (name, DOB, phone, email)
+- If patient already has a booked appointment and asks for another, treat it as a new separate booking
+
+## DOCTORS:
+- Heart/chest/blood pressure/ECG -> Dr. Sarah Chen (Cardiologist)
+- Knee/back/bone/joint/shoulder -> Dr. Marcus Webb (Orthopedist)
+- Skin/rash/acne/hair/mole -> Dr. Priya Nair (Dermatologist)
+- Headache/migraine/nerve/dizzy/brain -> Dr. James Okafor (Neurologist)
+
+## DATE PREFERENCES:
+- "do you have Wednesday?" -> call get_available_slots with preferred_day: "Wednesday"
+- "week after" / "next week" -> call get_available_slots with preferred_after_date set to 7 days from the last slots shown
+- Always show the FULL date not just the time when showing filtered results
+
+## CONVERSATION RULES:
+- Collect patient info ONE field at a time: first name -> last name -> DOB -> phone -> email
+- Once you have all info and slots are showing, DO NOT ask for info again
+- Use the patient's first name naturally
+- Never say "It seems there was an issue" repeatedly - if booking fails once, try with option_number only, don't keep re-showing slots
+- If patient says "yes" after you showed them a specific slot, that means confirm that slot
+
+## VOICE CALL FLOW:
 - If the patient says anything like "can you call me", "schedule a call", "phone call", "call me instead", or "prefer to talk", respond EXACTLY with:
 "Of course! I can have our AI assistant call you right now to continue this conversation by voice. Just click the 'Call me instead' button on the left, and you'll receive a call at the phone number you provided. The assistant will have full context of our conversation."
 - Do NOT tell them to call ${OFFICE_INFO.phone} for a voice call request.
 
-OFFICE INFO:
-- Address: ${OFFICE_INFO.address}
-- Phone: ${OFFICE_INFO.phone}
-- Hours: Monday-Friday 8:00 AM-6:00 PM, Saturday 9:00 AM-1:00 PM
-- Prescription refills: direct patients to call their pharmacy directly
+## SAFETY:
+- Never give medical advice, diagnoses, or treatment opinions
+- For emergencies: "Please call 911 or go to your nearest ER immediately"
+- For medical questions: "That's a question for your doctor - I want to make sure you get the right answer from a medical professional"
 
-HARD RULES:
-- Never provide medical diagnoses, treatment advice, or dosage guidance.
-- If asked medical questions, say: "That's a great question for your doctor. I want to make sure you get the right answer from a medical professional."
-- If the patient seems to be in an emergency, say: "If this is a medical emergency, please call 911 or go to your nearest emergency room immediately."
-- Never repeat all 6 intake fields at once. Collect them one at a time.
-- Always be warm, never rushed, and use the patient's first name once you have it.`;
+Office: ${OFFICE_INFO.address}
+Phone: ${OFFICE_INFO.phone}
+Hours: Monday-Friday 8:00 AM-6:00 PM, Saturday 9:00 AM-1:00 PM`;
 
 const TOOL_DEFINITIONS = [
   {
@@ -82,7 +95,7 @@ const TOOL_DEFINITIONS = [
     function: {
       name: 'get_available_slots',
       description:
-        "Retrieves available appointment slots matching the patient's condition. Semantically matches body_part to the correct specialist.",
+        "Get available appointment slots. Use preferred_after_date (ISO string) when the patient asks for next week or week after.",
       parameters: {
         type: 'object',
         properties: {
@@ -91,6 +104,11 @@ const TOOL_DEFINITIONS = [
           },
           preferred_day: {
             type: 'string'
+          },
+          preferred_after_date: {
+            type: 'string',
+            description:
+              'ISO date string. Use when the patient says next week or week after.'
           },
           preferred_time: {
             type: 'string'
@@ -109,29 +127,11 @@ const TOOL_DEFINITIONS = [
         type: 'object',
         properties: {
           option_number: { type: 'integer' },
-          slot_id: { type: 'string' },
-          provider_id: { type: 'string' },
-          patient_first_name: { type: 'string' },
-          patient_last_name: { type: 'string' },
-          patient_dob: { type: 'string' },
-          patient_phone: { type: 'string' },
-          patient_email: { type: 'string' },
           reason: { type: 'string' },
           session_id: { type: 'string' },
           sms_opted_in: { type: 'boolean' }
         },
-        required: [
-          'slot_id',
-          'provider_id',
-          'patient_first_name',
-          'patient_last_name',
-          'patient_dob',
-          'patient_phone',
-          'patient_email',
-          'reason',
-          'session_id',
-          'sms_opted_in'
-        ]
+        required: ['option_number', 'session_id', 'sms_opted_in', 'reason']
       }
     }
   },
@@ -520,10 +520,41 @@ const buildNextAvailableDays = (slots = []) => {
   return uniqueDays.slice(0, 2);
 };
 
+const parsePreferredAfterDate = (value = '') => {
+  if (!value) {
+    return null;
+  }
+
+  const parsedDate = new Date(value);
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+};
+
 const looksLikeUuid = (value = '') =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     String(value).trim()
   );
+
+const normalizePendingSlots = (pendingSlots = {}) => {
+  let parsedSlots = pendingSlots;
+
+  if (typeof parsedSlots === 'string') {
+    try {
+      parsedSlots = JSON.parse(parsedSlots);
+    } catch {
+      return {};
+    }
+  }
+
+  if (!parsedSlots || typeof parsedSlots !== 'object' || Array.isArray(parsedSlots)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(parsedSlots).filter(
+      ([key, value]) => /^\d+$/.test(String(key)) && value && typeof value === 'object'
+    )
+  );
+};
 
 const buildBookingOptions = (formattedOptions = []) =>
   formattedOptions.map((option) => ({
@@ -535,6 +566,57 @@ const buildBookingOptions = (formattedOptions = []) =>
     slot_datetime: option.slot_datetime,
     spoken_text: option.text
   }));
+
+const buildPendingSlotMap = (formattedOptions = []) =>
+  formattedOptions.reduce((slotMap, option) => {
+    slotMap[String(option.option_number)] = {
+      slot_id: option.slot_id,
+      provider_id: option.provider_id,
+      provider_name: option.provider_name,
+      specialty: option.specialty,
+      slot_datetime: option.slot_datetime,
+      date_formatted: formatDayLabel(option.slot_datetime),
+      time_formatted: new Date(option.slot_datetime).toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZone: 'America/New_York'
+      })
+    };
+
+    return slotMap;
+  }, {});
+
+const savePendingSlots = async (sessionId, slotMap = {}) => {
+  if (!sessionId) {
+    return;
+  }
+
+  await query(
+    `
+      UPDATE sessions
+      SET pending_slots = $2::jsonb, updated_at = NOW()
+      WHERE id = $1
+    `,
+    [sessionId, JSON.stringify(slotMap)]
+  );
+
+  logger.info(`[SLOTS] Saved ${Object.keys(slotMap).length} slots to session ${sessionId}`);
+};
+
+const clearPendingSlots = async (sessionId) => {
+  if (!sessionId) {
+    return;
+  }
+
+  await query(
+    `
+      UPDATE sessions
+      SET pending_slots = '{}'::jsonb, updated_at = NOW()
+      WHERE id = $1
+    `,
+    [sessionId]
+  );
+};
 
 const storeRecentAvailability = (sessionId, availabilityContext = {}) => {
   if (!sessionId || !availabilityContext.bookingOptions?.length) {
@@ -676,6 +758,64 @@ const extractTimeSelection = (value = '') => {
   return `${Number.parseInt(hour, 10)}:${minutes.padStart(2, '0')} ${meridiem.toUpperCase()}`;
 };
 
+const resolvePendingSlotSelection = ({
+  pendingSlots = {},
+  optionNumber,
+  slotReference = ''
+}) => {
+  const normalizedSlots = normalizePendingSlots(pendingSlots);
+  const normalizedOptionNumber =
+    optionNumber && Number.parseInt(optionNumber, 10) > 0
+      ? String(Number.parseInt(optionNumber, 10))
+      : '';
+
+  if (normalizedOptionNumber && normalizedSlots[normalizedOptionNumber]) {
+    return {
+      option_number: Number.parseInt(normalizedOptionNumber, 10),
+      ...normalizedSlots[normalizedOptionNumber]
+    };
+  }
+
+  const normalizedReference = String(slotReference || '').trim();
+
+  if (!normalizedReference) {
+    return null;
+  }
+
+  if (/^\d+$/.test(normalizedReference) && normalizedSlots[normalizedReference]) {
+    return {
+      option_number: Number.parseInt(normalizedReference, 10),
+      ...normalizedSlots[normalizedReference]
+    };
+  }
+
+  const loweredReference = normalizedReference.toLowerCase();
+  const extractedTime = extractTimeSelection(normalizedReference)?.toLowerCase() || '';
+
+  for (const [optionKey, slot] of Object.entries(normalizedSlots)) {
+    const timeFormatted = String(slot.time_formatted || '').toLowerCase();
+    const dateFormatted = String(slot.date_formatted || '').toLowerCase();
+    const slotDateTime = String(slot.slot_datetime || '');
+    const compositeLabel = `${dateFormatted} ${timeFormatted}`.trim();
+
+    if (
+      slot.slot_id === normalizedReference ||
+      slotDateTime === normalizedReference ||
+      slotDateTime.toLowerCase() === loweredReference ||
+      (timeFormatted && timeFormatted.includes(loweredReference)) ||
+      (compositeLabel && compositeLabel.includes(loweredReference)) ||
+      (extractedTime && timeFormatted === extractedTime)
+    ) {
+      return {
+        option_number: Number.parseInt(optionKey, 10),
+        ...slot
+      };
+    }
+  }
+
+  return null;
+};
+
 const isConfirmationMessage = (value = '') =>
   /\b(yes|yeah|yep|confirm|confirmed|book it|book it now|yes book it|yes confirm|please book|go ahead)\b/i.test(
     value
@@ -696,19 +836,54 @@ const formatAvailabilityPrompt = (availabilityContext, introLine) => {
 
 const buildMissingFieldPrompt = (missingField, bodyPart) => {
   switch (missingField) {
+    case 'first name':
     case 'patient_first_name':
       return 'Before I book that, I still need your first name.';
+    case 'last name':
     case 'patient_last_name':
       return 'Before I book that, I still need your last name.';
+    case 'date of birth':
     case 'patient_dob':
       return 'Before I book that, I still need your date of birth in MM/DD/YYYY format.';
+    case 'phone':
     case 'patient_phone':
       return 'Before I book that, I still need your phone number.';
+    case 'email':
     case 'patient_email':
       return 'Before I book that, I still need your email address for the confirmation.';
     default:
       return `Before I book that, I still need one more detail${bodyPart ? ` for your ${bodyPart} visit` : ''}.`;
   }
+};
+
+const buildTrimmedConversationHistory = (history = [], session = {}) => {
+  const MAX_HISTORY = 40;
+
+  if (history.length <= MAX_HISTORY) {
+    return history;
+  }
+
+  const firstTwo = history.slice(0, 2);
+  const recent = history.slice(-(MAX_HISTORY - 2));
+  const patientSummary = [
+    `name: ${[session.patient_first_name, session.patient_last_name].filter(Boolean).join(' ').trim() || 'unknown'}`,
+    `email: ${session.patient_email || 'unknown'}`,
+    `phone: ${session.patient_phone || 'unknown'}`
+  ].join(', ');
+  const trimmedHistory = [
+    ...firstTwo,
+    {
+      role: 'system',
+      content: `[Earlier conversation trimmed for brevity. Patient info: ${patientSummary}]`
+    },
+    ...recent
+  ];
+
+  logger.info(
+    `[CHAT] History trimmed from ${history.length} to ${trimmedHistory.length} messages`
+  );
+
+  return trimmedHistory;
 };
 
 const normalizeProviderReference = (value = '') =>
@@ -914,13 +1089,19 @@ export const getSessionState = async ({ session_id }) => {
   };
 };
 
-export const getAvailableSlots = async ({
-  session_id = '',
-  body_part,
-  preferred_day = '',
-  preferred_time = ''
-}) => {
+export const getAvailableSlots = async (
+  {
+    session_id = '',
+    body_part,
+    preferred_day = '',
+    preferred_after_date = '',
+    preferred_time = ''
+  },
+  sessionId = session_id
+) => {
+  const activeSessionId = sessionId || session_id || '';
   const specialty = findMatchingProviders(body_part);
+  const preferredAfterDate = parsePreferredAfterDate(preferred_after_date);
   const providerParams = [];
   let providerQuery = `
       SELECT id, name, specialty, body_parts, bio
@@ -979,6 +1160,11 @@ export const getAvailableSlots = async ({
   }
 
   if (!matchedProviders.length) {
+    if (activeSessionId) {
+      recentAvailabilityBySession.delete(activeSessionId);
+      await clearPendingSlots(activeSessionId);
+    }
+
     const noMatchMessage = OUT_OF_SCOPE_KEYWORDS.some((keyword) =>
       body_part.toLowerCase().includes(keyword)
     )
@@ -989,9 +1175,9 @@ export const getAvailableSlots = async ({
       error: 'no_match',
       body_part,
       preferred_day: preferred_day || null,
+      preferred_after_date: preferredAfterDate?.toISOString() || null,
       preferred_time: preferred_time || null,
       providers: [],
-      formatted_options: [],
       message: noMatchMessage,
       summary: noMatchMessage
     };
@@ -1002,18 +1188,27 @@ export const getAvailableSlots = async ({
   let primaryProviderFutureSlots = [];
 
   for (const provider of matchedProviders.slice(0, 4)) {
+    const slotQueryParams = [provider.id];
+    let dateFilter =
+      'AND slot_datetime > NOW() AND slot_datetime <= NOW() + INTERVAL \'45 days\'';
+
+    if (preferredAfterDate) {
+      slotQueryParams.push(preferredAfterDate.toISOString());
+      dateFilter =
+        'AND slot_datetime > $2::timestamptz AND slot_datetime < $2::timestamptz + INTERVAL \'14 days\'';
+    }
+
     const slotResult = await query(
       `
         SELECT id, provider_id, slot_datetime
         FROM provider_slots
         WHERE provider_id = $1
           AND is_available = TRUE
-          AND slot_datetime > NOW()
-          AND slot_datetime <= NOW() + INTERVAL '45 days'
+          ${dateFilter}
         ORDER BY slot_datetime
         LIMIT 30
       `,
-      [provider.id]
+      slotQueryParams
     );
 
     const unfilteredSlots = slotResult.rows.map((slot) => ({
@@ -1075,6 +1270,7 @@ export const getAvailableSlots = async ({
       detailed_text: `${index + 1}. ${formatSlotDateTime(slot.slot_datetime)} - ${slot.provider_name} (${slot.specialty})`
     }));
   const bookingOptions = buildBookingOptions(formattedOptions);
+  const slotMap = buildPendingSlotMap(formattedOptions);
 
   const summary = formattedOptions.length
     ? `I have the following available with ${primaryProvider.name}:\n${formattedOptions
@@ -1083,8 +1279,9 @@ export const getAvailableSlots = async ({
     : 'I found matching specialists, but no available slots matched the preferred day or time.';
 
   if (!formattedOptions.length) {
-    if (session_id) {
-      recentAvailabilityBySession.delete(session_id);
+    if (activeSessionId) {
+      recentAvailabilityBySession.delete(activeSessionId);
+      await clearPendingSlots(activeSessionId);
     }
 
     const nextAvailableDays = buildNextAvailableDays(primaryProviderFutureSlots);
@@ -1093,8 +1290,8 @@ export const getAvailableSlots = async ({
       error: 'no_slots',
       body_part,
       preferred_day: preferred_day || null,
+      preferred_after_date: preferredAfterDate?.toISOString() || null,
       preferred_time: preferred_time || null,
-      provider_id: primaryProvider.id,
       provider_name: primaryProvider.name,
       specialty: primaryProvider.specialty,
       next_available_days: nextAvailableDays,
@@ -1112,38 +1309,61 @@ export const getAvailableSlots = async ({
     };
   }
 
-  storeRecentAvailability(session_id, {
+  if (activeSessionId) {
+    await savePendingSlots(activeSessionId, slotMap);
+  }
+
+  storeRecentAvailability(activeSessionId, {
     bodyPart: body_part,
     providerId: primaryProvider.id,
     providerName: primaryProvider.name,
     specialty: primaryProvider.specialty,
     preferredDay: preferred_day || '',
+    preferredAfterDate: preferredAfterDate?.toISOString() || '',
     preferredTime: preferred_time || '',
     bookingOptions
   });
 
   return {
+    success: true,
     body_part,
     matched_specialty: specialty || primaryProvider.specialty.toLowerCase(),
     preferred_day: preferred_day || null,
+    preferred_after_date: preferredAfterDate?.toISOString() || null,
     preferred_time: preferred_time || null,
     provider_name: primaryProvider.name,
     specialty: primaryProvider.specialty,
     slots: formattedOptions.map((option) => ({
-      slot_id: option.slot_id,
-      provider_id: option.provider_id,
+      option_number: option.option_number,
+      day: new Date(option.slot_datetime).toLocaleDateString('en-US', {
+        weekday: 'long',
+        timeZone: 'America/New_York'
+      }),
       date: formatDayLabel(option.slot_datetime),
       time: new Date(option.slot_datetime).toLocaleTimeString('en-US', {
         hour: 'numeric',
-        minute: '2-digit'
-      }),
-      datetime_raw: option.slot_datetime
-      })),
-    providers: providerMatches,
-    formatted_options: formattedOptions,
-    booking_options: bookingOptions,
-    voice_booking_hint:
-      'Read the numbered options aloud. When the patient chooses a number, call book_appointment with that option_number or the matching slot_id and provider_id.',
+        minute: '2-digit',
+        timeZone: 'America/New_York'
+      })
+    })),
+    providers: providerMatches.map((provider) => ({
+      provider_name: provider.provider_name,
+      specialty: provider.specialty,
+      bio: provider.bio,
+      body_parts: provider.body_parts,
+      matched_terms: provider.matched_terms,
+      slots: provider.slots.map((slot) => ({
+        date: formatDayLabel(slot.slot_datetime),
+        time: new Date(slot.slot_datetime).toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          timeZone: 'America/New_York'
+        }),
+        slot_datetime: slot.slot_datetime
+      }))
+    })),
+    instruction:
+      'Present these slots numbered 1-6. When the patient picks a number, call book_appointment with ONLY option_number and session_id. Do NOT pass slot_id or provider_id.',
     summary
   };
 };
@@ -1245,183 +1465,141 @@ export const bookWaitlist = async ({
   };
 };
 
-export const bookAppointment = async ({
-  slot_id,
-  provider_id,
-  option_number,
-  patient_first_name,
-  patient_last_name,
-  patient_dob,
-  patient_phone,
-  patient_email,
-  reason,
-  session_id,
-  sms_opted_in
-}) => {
-  logger.info(`[BOOK] Attempting to book: ${JSON.stringify({
-    session_id,
-    option_number,
-    slot_id,
-    provider_id,
-    patient_first_name,
-    patient_last_name,
-    patient_dob,
-    patient_phone,
-    patient_email,
-    reason,
-    sms_opted_in
-  })}`);
+export const bookAppointment = async (args = {}, sessionId = args.session_id) => {
+  const activeSessionId = sessionId || args.session_id || '';
+  const { option_number, sms_opted_in } = args;
 
-  const resolvedSelection = resolveBookingSelection({
-    session_id,
-    slot_id,
-    provider_id,
-    option_number
-  });
-  const resolvedProviderIdFromReference = await resolveProviderId(provider_id);
-  const resolvedSlotId =
-    resolvedSelection?.slot_id ||
-    (slot_id && looksLikeUuid(slot_id) ? slot_id : '');
-  const resolvedProviderId =
-    resolvedSelection?.provider_id ||
-    resolvedProviderIdFromReference ||
-    (provider_id && looksLikeUuid(provider_id) ? provider_id : '');
-  const numericOptionNumber =
-    option_number ||
-    (/^\d+$/.test(String(slot_id || '').trim())
-      ? Number.parseInt(String(slot_id).trim(), 10)
-      : null);
-  const directProviderOptionSelection =
-    !resolvedSelection && resolvedProviderId && numericOptionNumber
-      ? await resolveSlotFromProviderOptions({
-          providerId: resolvedProviderId,
-          optionNumber: numericOptionNumber
-        })
-      : null;
-  const finalResolvedSlotId =
-    directProviderOptionSelection?.slot_id || resolvedSlotId;
-  const finalResolvedProviderId =
-    directProviderOptionSelection?.provider_id || resolvedProviderId;
+  logger.info(`[BOOK] Session ${activeSessionId} booking option ${option_number}`);
 
-  const missing = [];
-
-  if (!session_id) {
-    missing.push('session_id');
-  }
-  if (!finalResolvedSlotId) {
-    missing.push('slot_id');
-  }
-  if (!finalResolvedProviderId) {
-    missing.push('provider_id');
-  }
-  if (!patient_first_name) {
-    missing.push('patient_first_name');
-  }
-  if (!patient_last_name) {
-    missing.push('patient_last_name');
-  }
-  if (!patient_email) {
-    missing.push('patient_email');
-  }
-
-  if (missing.length) {
-    logger.error(`[BOOK] Missing fields: ${missing.join(', ')}`);
+  if (!activeSessionId) {
     return {
-      error: 'missing_fields',
-      missing,
-      message: `Cannot book — missing: ${missing.join(', ')}. Please collect these from the patient.`
+      error: 'session_not_found',
+      message: 'Session expired. Please start over.'
     };
   }
 
-  if (patient_dob && !isValidDobFormat(patient_dob)) {
+  const sessionResult = await query(
+    `
+      SELECT *
+      FROM sessions
+      WHERE id = $1
+    `,
+    [activeSessionId]
+  );
+
+  if (!sessionResult.rows.length) {
+    return {
+      error: 'session_not_found',
+      message: 'Session expired. Please start over.'
+    };
+  }
+
+  const session = sessionResult.rows[0];
+  const pendingSlots = normalizePendingSlots(session.pending_slots);
+  const slotData = resolvePendingSlotSelection({
+    pendingSlots,
+    optionNumber: option_number,
+    slotReference: args.slot_id || ''
+  });
+
+    if (!slotData) {
+      const availableOptions = Object.keys(pendingSlots);
+      logger.error(
+        `[BOOK] Cannot resolve slot. option_number=${option_number}, pending_slots keys=${Object.keys(
+          pendingSlots
+        ).join(', ')}`
+      );
+      return {
+        error: 'slot_not_resolved',
+        available_options: availableOptions,
+        message: availableOptions.length
+          ? `I couldn't identify which slot you selected. Available options are: ${availableOptions.join(
+              ', '
+            )}. Please reply with just the number.`
+          : "I couldn't identify which slot you selected. Please ask me to show the available times again."
+      };
+    }
+
+  const { slot_id, provider_id, provider_name, specialty, date_formatted, time_formatted } =
+    slotData;
+
+  logger.info(`[BOOK] Resolved to slot_id=${slot_id}, provider=${provider_name}`);
+
+  const patient = {
+    first_name: session.patient_first_name || args.patient_first_name || '',
+    last_name: session.patient_last_name || args.patient_last_name || '',
+    dob: session.patient_dob || args.patient_dob || '',
+    phone: session.patient_phone || args.patient_phone || '',
+    email: session.patient_email || args.patient_email || ''
+  };
+
+  const missing = [];
+
+  if (!patient.first_name) {
+    missing.push('first name');
+  }
+  if (!patient.last_name) {
+    missing.push('last name');
+  }
+  if (!patient.email) {
+    missing.push('email');
+  }
+
+  if (missing.length) {
+    return {
+      error: 'missing_patient_data',
+      missing,
+      message: `I still need: ${missing.join(', ')}. Could you provide that?`
+    };
+  }
+
+  if (patient.dob && !isValidDobFormat(patient.dob)) {
     return {
       error: 'invalid_dob',
       message: 'Please re-enter the date of birth in MM/DD/YYYY format.'
     };
   }
 
-  const initialSlotCheck = await query(
+  const slotCheck = await query(
     `
-      SELECT
-        provider_slots.*,
-        providers.name AS provider_name,
-        providers.specialty
+      SELECT *
       FROM provider_slots
-      JOIN providers
-        ON providers.id = provider_slots.provider_id
-      WHERE provider_slots.id = $1
-        AND provider_slots.is_available = TRUE
+      WHERE id = $1
+        AND is_available = TRUE
     `,
-    [finalResolvedSlotId]
+    [slot_id]
   );
 
-  if (!initialSlotCheck.rows.length) {
-    logger.warn('[BOOK] Slot not found by available ID, checking full slot record.');
-
-    const anySlotResult = await query(
-      `
-        SELECT
-          provider_slots.*,
-          providers.name AS provider_name,
-          providers.specialty
-        FROM provider_slots
-        JOIN providers
-          ON providers.id = provider_slots.provider_id
-      WHERE provider_slots.id = $1
-      `,
-      [finalResolvedSlotId || resolvedSlotId || slot_id]
-    );
-
-    if (anySlotResult.rows.length && !anySlotResult.rows[0].is_available) {
-      return {
-        error: 'slot_taken',
-        message: 'That slot was just taken. Let me find you another available time.',
-        slot_id
-      };
-    }
-
+  if (!slotCheck.rows.length) {
+    await clearPendingSlots(activeSessionId);
     return {
-      error: 'slot_not_found',
-      message: 'Could not find that slot. Let me show you available times again.',
-      slot_id: finalResolvedSlotId || resolvedSlotId || slot_id,
-      option_number: option_number || null
+      error: 'slot_taken',
+      message: 'That slot was just taken by another patient. Let me find you the next available options.'
     };
   }
 
-  const selectedSlot = initialSlotCheck.rows[0];
-  const selectedProviderId = selectedSlot.provider_id;
-  const resolvedProviderName = selectedSlot.provider_name;
-  const resolvedSpecialty = selectedSlot.specialty;
-  const normalizedSmsOptIn =
-    sms_opted_in === true || sms_opted_in === 'true';
-
-  if (finalResolvedProviderId && finalResolvedProviderId !== selectedProviderId) {
-    logger.warn(
-      `[BOOK] Provider mismatch for slot ${finalResolvedSlotId}: received ${finalResolvedProviderId}, using ${selectedProviderId}.`
-    );
-  }
-
+  const normalizedSmsOptIn = sms_opted_in === true || sms_opted_in === 'true';
   const client = await pool.connect();
-  let bookingPayload = null;
+  let appointment;
 
   try {
     await client.query('BEGIN');
 
-    const sessionResult = await client.query(
+    const lockedSessionResult = await client.query(
       `
         SELECT id
         FROM sessions
         WHERE id = $1
         FOR UPDATE
       `,
-      [session_id]
+      [activeSessionId]
     );
 
-    if (!sessionResult.rows.length) {
+    if (!lockedSessionResult.rows.length) {
       await client.query('ROLLBACK');
       return {
         error: 'session_not_found',
-        message: 'Session not found.'
+        message: 'Session expired. Please start over.'
       };
     }
 
@@ -1442,7 +1620,7 @@ export const bookAppointment = async ({
         ORDER BY appointments.created_at DESC
         LIMIT 1
       `,
-      [session_id]
+      [activeSessionId]
     );
 
     if (existingAppointmentResult.rows.length) {
@@ -1460,38 +1638,37 @@ export const bookAppointment = async ({
 
     const lockedSlotResult = await client.query(
       `
-        SELECT
-          provider_slots.*,
-          providers.name AS provider_name,
-          providers.specialty
+        SELECT *
         FROM provider_slots
-      JOIN providers
-          ON providers.id = provider_slots.provider_id
-        WHERE provider_slots.id = $1
+        WHERE id = $1
         FOR UPDATE
       `,
-      [finalResolvedSlotId]
+      [slot_id]
     );
 
     if (!lockedSlotResult.rows.length) {
       await client.query('ROLLBACK');
       return {
         error: 'slot_not_found',
-        message: 'Could not find that slot. Let me show you available times again.',
-        slot_id: finalResolvedSlotId,
-        option_number: option_number || null
+        message: 'Could not find that slot. Let me show you available times again.'
       };
     }
 
     const lockedSlot = lockedSlotResult.rows[0];
 
     if (!lockedSlot.is_available) {
+      await client.query(
+        `
+          UPDATE sessions
+          SET pending_slots = '{}'::jsonb, updated_at = NOW()
+          WHERE id = $1
+        `,
+        [activeSessionId]
+      );
       await client.query('ROLLBACK');
       return {
         error: 'slot_taken',
-        message: 'That slot was just taken. Let me find you another available time.',
-        slot_id: finalResolvedSlotId,
-        option_number: option_number || null
+        message: 'That slot was just taken by another patient. Let me find you the next available options.'
       };
     }
 
@@ -1501,7 +1678,7 @@ export const bookAppointment = async ({
         SET is_available = FALSE
         WHERE id = $1
       `,
-      [finalResolvedSlotId]
+      [slot_id]
     );
 
     const appointmentResult = await client.query(
@@ -1523,20 +1700,20 @@ export const bookAppointment = async ({
         RETURNING *
       `,
       [
-        session_id,
-        lockedSlot.provider_id,
-        finalResolvedSlotId,
-        patient_first_name,
-        patient_last_name,
-        patient_dob || null,
-        patient_phone || null,
-        patient_email,
-        reason || 'General appointment',
+        activeSessionId,
+        provider_id,
+        slot_id,
+        patient.first_name,
+        patient.last_name,
+        patient.dob || '',
+        patient.phone || '',
+        patient.email,
+        args.reason || session.reason || 'General appointment',
         normalizedSmsOptIn
       ]
     );
 
-    const appointment = appointmentResult.rows[0];
+    appointment = appointmentResult.rows[0];
 
     await client.query(
       `
@@ -1549,66 +1726,22 @@ export const bookAppointment = async ({
           patient_dob = $5,
           patient_phone = $6,
           patient_email = $7,
+          pending_slots = '{}'::jsonb,
           updated_at = NOW()
         WHERE id = $1
       `,
       [
-        session_id,
+        activeSessionId,
         appointment.id,
-        patient_first_name,
-        patient_last_name,
-        patient_dob || null,
-        patient_phone || null,
-        patient_email
+        patient.first_name,
+        patient.last_name,
+        patient.dob || '',
+        patient.phone || '',
+        patient.email
       ]
     );
 
     await client.query('COMMIT');
-
-    const appointmentDate = new Date(lockedSlot.slot_datetime).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      timeZone: 'America/New_York'
-    });
-    const appointmentTime = new Date(lockedSlot.slot_datetime).toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-      timeZone: 'America/New_York'
-    });
-
-    bookingPayload = {
-      success: true,
-      appointment_id: appointment.id,
-      session_id,
-      slot_id: finalResolvedSlotId,
-      option_number: option_number || resolvedSelection?.option_number || null,
-      provider_id: lockedSlot.provider_id,
-      provider_name: lockedSlot.provider_name,
-      provider_specialty: lockedSlot.specialty,
-      specialty: lockedSlot.specialty,
-      doctor: lockedSlot.provider_name,
-      date: appointmentDate,
-      time: appointmentTime,
-      slot_datetime: lockedSlot.slot_datetime,
-      patient_name: patient_first_name,
-      patient_first_name,
-      patient_last_name,
-      patient_dob: patient_dob || null,
-      patient_phone: patient_phone || null,
-      patient_email,
-      email: patient_email,
-      reason: reason || 'General appointment',
-      sms_opted_in: normalizedSmsOptIn,
-      address: OFFICE_INFO.address,
-      office_phone: OFFICE_INFO.phone,
-      message: 'Appointment successfully booked',
-      confirmation_message: `Booked with ${lockedSlot.provider_name} on ${formatSlotDateTime(
-        lockedSlot.slot_datetime
-      )}.`
-    };
   } catch (error) {
     await client.query('ROLLBACK');
     logger.error('[BOOK TRANSACTION ERROR]', error.message, error.stack);
@@ -1617,37 +1750,56 @@ export const bookAppointment = async ({
     client.release();
   }
 
-  logger.info(`[BOOK] Success! Appointment ID: ${bookingPayload.appointment_id}`);
+  logger.info(`[BOOK] SUCCESS appointment_id=${appointment.id}`);
+  recentAvailabilityBySession.delete(activeSessionId);
 
-  Promise.resolve(
-    sendAppointmentConfirmation({
-      to: bookingPayload.patient_email,
-      patientName: bookingPayload.patient_first_name,
-      doctorName: resolvedProviderName,
-      specialty: resolvedSpecialty,
-      appointmentDate: bookingPayload.date,
-      appointmentTime: bookingPayload.time,
+  try {
+    await sendAppointmentConfirmation({
+      to: patient.email,
+      patientName: patient.first_name,
+      doctorName: provider_name,
+      specialty: specialty || '',
+      appointmentDate: date_formatted,
+      appointmentTime: time_formatted,
       address: OFFICE_INFO.address
-    })
-  ).catch((error) => {
-    logger.error('[EMAIL ERROR]', error.message);
-  });
-
-  if (normalizedSmsOptIn) {
-    Promise.resolve(
-      sendAppointmentSMS({
-        to: bookingPayload.patient_phone,
-        patientName: bookingPayload.patient_first_name,
-        doctorName: resolvedProviderName,
-        appointmentDate: bookingPayload.date,
-        appointmentTime: bookingPayload.time
-      })
-    ).catch((error) => {
-      logger.error('[SMS ERROR]', error.message);
     });
+    logger.info(`[EMAIL] Confirmation sent to ${patient.email}`);
+  } catch (error) {
+    logger.error('[EMAIL ERROR]', error.message);
   }
 
-  return bookingPayload;
+  if (normalizedSmsOptIn && patient.phone) {
+    try {
+      await sendAppointmentSMS({
+        to: patient.phone,
+        patientName: patient.first_name,
+        doctorName: provider_name,
+        appointmentDate: date_formatted,
+        appointmentTime: time_formatted
+      });
+      logger.info(`[SMS] Confirmation sent to ${patient.phone}`);
+    } catch (error) {
+      logger.error('[SMS ERROR]', error.message);
+    }
+  }
+
+  return {
+    success: true,
+    appointment_id: appointment.id,
+    session_id: activeSessionId,
+    option_number: slotData.option_number || null,
+    doctor: provider_name,
+    provider_name,
+    specialty: specialty || '',
+    date: date_formatted,
+    time: time_formatted,
+    patient_email: patient.email,
+    patient_name: patient.first_name,
+    patient_first_name: patient.first_name,
+    patient_last_name: patient.last_name,
+    patient_phone: patient.phone || '',
+    message: 'Appointment successfully booked'
+  };
 };
 
 export const ariaToolHandlers = {
@@ -1721,7 +1873,12 @@ export class ChatService {
         content: this.systemPrompt
       },
       ...conversationHistory.map((message) => ({
-        role: message.role === 'assistant' ? 'assistant' : 'user',
+        role:
+          message.role === 'assistant'
+            ? 'assistant'
+            : message.role === 'system'
+              ? 'system'
+              : 'user',
         content: message.content
       }))
     ];
@@ -1885,10 +2042,13 @@ Write a concise welcome-back message that feels natural and ready to continue th
 
       switch (toolName) {
         case 'get_available_slots':
-          toolResult = await this.toolHandlers.get_available_slots({
-            session_id: sessionId,
-            ...parsedArguments
-          });
+          toolResult = await this.toolHandlers.get_available_slots(
+            {
+              session_id: sessionId,
+              ...parsedArguments
+            },
+            sessionId
+          );
           parsedArguments = {
             session_id: sessionId,
             ...parsedArguments
@@ -1896,11 +2056,6 @@ Write a concise welcome-back message that feels natural and ready to continue th
           break;
         case 'book_appointment': {
           const mergedArguments = {
-            patient_first_name: sessionData.patient_first_name,
-            patient_last_name: sessionData.patient_last_name,
-            patient_dob: sessionData.patient_dob,
-            patient_phone: sessionData.patient_phone,
-            patient_email: sessionData.patient_email,
             ...parsedArguments,
             session_id: sessionId
           };
@@ -1908,7 +2063,7 @@ Write a concise welcome-back message that feels natural and ready to continue th
           logger.info(
             `[TOOL] book_appointment merged args: ${JSON.stringify(mergedArguments)}`
           );
-          toolResult = await this.toolHandlers.book_appointment(mergedArguments);
+          toolResult = await this.toolHandlers.book_appointment(mergedArguments, sessionId);
           parsedArguments = mergedArguments;
           break;
         }
@@ -2000,21 +2155,14 @@ Write a concise welcome-back message that feels natural and ready to continue th
     const bookingResult = await this.toolHandlers.book_appointment({
       session_id: sessionId,
       option_number: selectedOption.option_number,
-      slot_id: selectedOption.slot_id,
-      provider_id: selectedOption.provider_id,
-      patient_first_name: session.patient_first_name,
-      patient_last_name: session.patient_last_name,
-      patient_dob: session.patient_dob,
-      patient_phone: session.patient_phone,
-      patient_email: session.patient_email,
       reason: availabilityContext.bodyPart || '',
       sms_opted_in: true
-    });
+    }, sessionId);
 
     if (!bookingResult?.error) {
       recentAvailabilityBySession.delete(sessionId);
       return {
-        reply: `You're all set! Your appointment with ${bookingResult.provider_name} is confirmed for ${bookingResult.date} at ${bookingResult.time}. You'll receive a confirmation email at ${bookingResult.patient_email}.`,
+        reply: `You're all set! Your appointment with ${bookingResult.provider_name || bookingResult.doctor} is confirmed for ${bookingResult.date} at ${bookingResult.time}. You'll receive a confirmation email at ${bookingResult.patient_email}.`,
         interaction: {
           get_available_slots: availabilityContext,
           book_appointment: bookingResult,
@@ -2025,7 +2173,10 @@ Write a concise welcome-back message that feels natural and ready to continue th
       };
     }
 
-    if (bookingResult.error === 'missing_fields') {
+    if (
+      bookingResult.error === 'missing_fields' ||
+      bookingResult.error === 'missing_patient_data'
+    ) {
       const nextMissingField = bookingResult.missing?.[0] || '';
       setRecentAvailabilitySelection(sessionId, selectedOption.option_number);
       return {
@@ -2042,14 +2193,16 @@ Write a concise welcome-back message that feels natural and ready to continue th
 
     if (
       bookingResult.error === 'slot_taken' ||
-      bookingResult.error === 'slot_not_found'
+      bookingResult.error === 'slot_not_found' ||
+      bookingResult.error === 'slot_not_resolved'
     ) {
       const refreshedAvailability = await this.toolHandlers.get_available_slots({
         session_id: sessionId,
         body_part: availabilityContext.bodyPart,
         preferred_day: availabilityContext.preferredDay,
+        preferred_after_date: availabilityContext.preferredAfterDate,
         preferred_time: availabilityContext.preferredTime
-      });
+      }, sessionId);
 
       return {
         reply: refreshedAvailability.summary,
@@ -2126,8 +2279,9 @@ Write a concise welcome-back message that feels natural and ready to continue th
         session_id: sessionId,
         body_part: availabilityContext.bodyPart,
         preferred_day: preferredDay,
+        preferred_after_date: availabilityContext.preferredAfterDate,
         preferred_time: availabilityContext.preferredTime
-      });
+      }, sessionId);
 
       return {
         reply: refreshedAvailability.summary,
@@ -2283,7 +2437,8 @@ Write a concise welcome-back message that feels natural and ready to continue th
       )}"`
     );
 
-    const messages = this.buildMessages(history);
+    const trimmedHistory = buildTrimmedConversationHistory(history, session);
+    const messages = this.buildMessages(trimmedHistory);
     let finalAssistantText = '';
     let loopCount = 0;
     const maxLoops = 5;

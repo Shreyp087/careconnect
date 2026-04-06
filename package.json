@@ -10,7 +10,7 @@
     "build": "vite build --config client/vite.config.js",
     "start": "node src/server.js",
     "sendgrid:test": "node scripts/sendgrid-test.cjs",
-    "migrate": "node -e \"const { spawnSync } = require('child_process'); const result = spawnSync('psql', [process.env.DATABASE_URL, '-f', 'migrations/001_init.sql', '-f', 'migrations/002_seed.sql', '-f', 'migrations/003_waitlist.sql'], { stdio: 'inherit', shell: true }); process.exit(result.status ?? 1);\""
+    "migrate": "node -e \"const { spawnSync } = require('child_process'); const result = spawnSync('psql', [process.env.DATABASE_URL, '-f', 'migrations/001_init.sql', '-f', 'migrations/002_seed.sql', '-f', 'migrations/003_waitlist.sql', '-f', 'migrations/004_pending_slots.sql'], { stdio: 'inherit', shell: true }); process.exit(result.status ?? 1);\""
   },
   "dependencies": {
     "@sendgrid/mail": "^8.1.6",

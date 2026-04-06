@@ -4,8 +4,17 @@ import sgMail from '@sendgrid/mail';
 dotenv.config();
 
 const PRACTICE_NAME = 'Greenfield Medical Practice';
-const PRACTICE_ADDRESS = '123 Wellness Drive, Suite 400, Springfield';
-const PRACTICE_PHONE = '555-0100';
+const PRACTICE_ADDRESS =
+  process.env.OFFICE_ADDRESS || '123 Wellness Drive, Suite 400, Springfield';
+const PRACTICE_PHONE = process.env.OFFICE_PHONE || '(your real number)';
+
+if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_API_KEY.startsWith('SG.')) {
+  console.error('[SENDGRID] WARNING: API key missing or invalid (should start with SG.)');
+}
+
+if (!process.env.SENDGRID_FROM_EMAIL) {
+  console.error('[SENDGRID] WARNING: SENDGRID_FROM_EMAIL not set');
+}
 
 const isConfigured = () =>
   Boolean(process.env.SENDGRID_API_KEY && process.env.SENDGRID_FROM_EMAIL);

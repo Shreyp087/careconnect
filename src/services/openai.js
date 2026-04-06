@@ -17,9 +17,9 @@ const RETURNING_USER_SIGNAL = '__RETURNING_USER__';
 const CONVERSATION_SUMMARY_LIMIT = 6;
 const OFFICE_INFO = {
   practiceName: 'Greenfield Medical Practice',
-  address: '123 Wellness Drive, Suite 400, Springfield',
+  address: process.env.OFFICE_ADDRESS || '123 Wellness Drive, Suite 400, Springfield',
   hours: 'Mon-Fri 8am-6pm, Sat 9am-1pm.',
-  phone: '555-0100',
+  phone: process.env.OFFICE_PHONE || '(your real number)',
   pharmacyPhone: '555-0199'
 };
 
@@ -58,11 +58,11 @@ If book_appointment returns error "duplicate_appointment", explain that the pati
 VOICE CALL FLOW:
 - If the patient says anything like "can you call me", "schedule a call", "phone call", "call me instead", or "prefer to talk", respond EXACTLY with:
 "Of course! I can have our AI assistant call you right now to continue this conversation by voice. Just click the 'Call me instead' button on the left, and you'll receive a call at the phone number you provided. The assistant will have full context of our conversation."
-- Do NOT tell them to call 555-0100 for a voice call request.
+- Do NOT tell them to call ${OFFICE_INFO.phone} for a voice call request.
 
 OFFICE INFO:
-- Address: 123 Wellness Drive, Suite 400, Springfield
-- Phone: 555-0100
+- Address: ${OFFICE_INFO.address}
+- Phone: ${OFFICE_INFO.phone}
 - Hours: Monday-Friday 8:00 AM-6:00 PM, Saturday 9:00 AM-1:00 PM
 - Prescription refills: direct patients to call their pharmacy directly
 
@@ -1198,18 +1198,35 @@ export class ChatService {
   async loadSession(sessionId) {
     const { rows } = await query(
       `
-        SELECT id, conversation_history
+        SELECT *
         FROM sessions
         WHERE id = $1
       `,
       [sessionId]
     );
 
-    if (!rows.length) {
-      throw new Error('Session not found.');
+    if (rows.length) {
+      return rows[0];
     }
 
-    return rows[0];
+    await query(
+      `
+        INSERT INTO sessions (id, conversation_history)
+        VALUES ($1, $2::jsonb)
+      `,
+      [sessionId, JSON.stringify([])]
+    );
+
+    const createdSession = await query(
+      `
+        SELECT *
+        FROM sessions
+        WHERE id = $1
+      `,
+      [sessionId]
+    );
+
+    return createdSession.rows[0];
   }
 
   async saveHistory(sessionId, conversationHistory) {
@@ -1236,10 +1253,10 @@ export class ChatService {
     ];
   }
 
-  async callOpenAI(messages, { includeTools = true } = {}) {
+  async createChatCompletion(messages, { includeTools = true, temperature = 0.2 } = {}) {
     const payload = {
       model: this.model,
-      temperature: 0.2,
+      temperature,
       messages
     };
 
@@ -1264,13 +1281,69 @@ export class ChatService {
     }
 
     const data = await response.json();
-    const message = data.choices?.[0]?.message;
+    const choice = data.choices?.[0];
+    const message = choice?.message;
 
     if (!message) {
       throw new Error('OpenAI returned an empty response.');
     }
 
+    return {
+      message,
+      finishReason: choice?.finish_reason || 'stop'
+    };
+  }
+
+  async callOpenAI(messages, { includeTools = true } = {}) {
+    const { message } = await this.createChatCompletion(messages, {
+      includeTools
+    });
+
     return message;
+  }
+
+  async updateSessionWithCapturedData(sessionId, payload = {}) {
+    const {
+      patient_first_name,
+      patient_last_name,
+      patient_dob,
+      patient_phone,
+      patient_email
+    } = payload;
+
+    if (
+      !patient_first_name &&
+      !patient_last_name &&
+      !patient_dob &&
+      !patient_phone &&
+      !patient_email
+    ) {
+      return this.loadSession(sessionId);
+    }
+
+    await query(
+      `
+        UPDATE sessions
+        SET
+          patient_first_name = COALESCE($2, patient_first_name),
+          patient_last_name = COALESCE($3, patient_last_name),
+          patient_dob = COALESCE($4, patient_dob),
+          patient_phone = COALESCE($5, patient_phone),
+          patient_email = COALESCE($6, patient_email),
+          updated_at = NOW()
+        WHERE id = $1
+      `,
+      [
+        sessionId,
+        patient_first_name || null,
+        patient_last_name || null,
+        patient_dob || null,
+        patient_phone || null,
+        patient_email || null
+      ]
+    );
+
+    return this.loadSession(sessionId);
   }
 
   async buildReturningUserReply(sessionId, conversationHistory) {
@@ -1327,21 +1400,90 @@ Write a concise welcome-back message that feels natural and ready to continue th
     );
   }
 
-  async executeToolCall(toolCall) {
+  async executeToolCall(toolCall, { sessionId, sessionData }) {
     const toolName = toolCall.function?.name;
     const rawArguments = toolCall.function?.arguments || '{}';
-    const handler = this.toolHandlers[toolName];
-
-    if (!handler) {
-      return buildToolErrorResult(toolName, new Error('Tool is not implemented.'));
-    }
+    let parsedArguments = {};
+    let toolResult;
 
     try {
-      const parsedArguments = JSON.parse(rawArguments);
-      return await handler(parsedArguments);
+      parsedArguments = JSON.parse(rawArguments);
+
+      switch (toolName) {
+        case 'get_available_slots':
+          toolResult = await this.toolHandlers.get_available_slots(parsedArguments);
+          break;
+        case 'book_appointment': {
+          const mergedArguments = {
+            session_id: sessionId,
+            patient_first_name: sessionData.patient_first_name,
+            patient_last_name: sessionData.patient_last_name,
+            patient_dob: sessionData.patient_dob,
+            patient_phone: sessionData.patient_phone,
+            patient_email: sessionData.patient_email,
+            ...parsedArguments
+          };
+
+          logger.info(
+            `[TOOL] book_appointment merged args: ${JSON.stringify(mergedArguments)}`
+          );
+          toolResult = await this.toolHandlers.book_appointment(mergedArguments);
+          parsedArguments = mergedArguments;
+          break;
+        }
+        case 'get_session_state':
+          toolResult = await this.toolHandlers.get_session_state({ session_id: sessionId });
+          break;
+        case 'book_waitlist': {
+          const mergedArguments = {
+            session_id: sessionId,
+            patient_name: [
+              sessionData.patient_first_name,
+              sessionData.patient_last_name
+            ]
+              .filter(Boolean)
+              .join(' ')
+              .trim(),
+            patient_email: sessionData.patient_email,
+            patient_phone: sessionData.patient_phone,
+            ...parsedArguments
+          };
+
+          toolResult = await this.toolHandlers.book_waitlist(mergedArguments);
+          parsedArguments = mergedArguments;
+          break;
+        }
+        default:
+          toolResult = {
+            error: `Unknown tool: ${toolName}`
+          };
+      }
     } catch (error) {
-      return buildToolErrorResult(toolName, error);
+      logger.error(`[TOOL ERROR] ${toolName}:`, error.message, error.stack);
+      toolResult = {
+        error: error.code || 'tool_failed',
+        tool: toolName,
+        message: error.message,
+        ...(error.details || {})
+      };
     }
+
+    const updatedSession = await this.updateSessionWithCapturedData(sessionId, parsedArguments)
+      .catch((updateError) => {
+        logger.warn('[SESSION UPDATE WARN]', updateError.message);
+        return sessionData;
+      });
+
+    const serializedResult =
+      typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult);
+
+    return {
+      toolName,
+      parsedArguments,
+      toolResult,
+      serializedResult,
+      updatedSession
+    };
   }
 
   async chat(sessionId, userMessage) {
@@ -1349,11 +1491,11 @@ Write a concise welcome-back message that feels natural and ready to continue th
       throw new Error('A message is required.');
     }
 
-    const session = await this.loadSession(sessionId);
-    const conversationHistory = Array.isArray(session.conversation_history)
-      ? session.conversation_history
-      : [];
     const trimmedMessage = userMessage.trim();
+    let session = await this.loadSession(sessionId);
+    const history = Array.isArray(session.conversation_history)
+      ? [...session.conversation_history]
+      : [];
     const interactionState = {
       get_available_slots: null,
       book_appointment: null,
@@ -1368,7 +1510,7 @@ Write a concise welcome-back message that feels natural and ready to continue th
       interactionState.get_session_state = sessionState;
 
       try {
-        const reply = await this.buildReturningUserReply(sessionId, conversationHistory);
+        const reply = await this.buildReturningUserReply(sessionId, history);
         this.latestToolOutputs.set(sessionId, interactionState);
         return reply;
       } catch (error) {
@@ -1392,46 +1534,71 @@ Write a concise welcome-back message that feels natural and ready to continue th
       }
     }
 
-    const updatedHistory = [
-      ...conversationHistory,
-      {
-        role: 'user',
-        content: trimmedMessage,
-        createdAt: new Date().toISOString()
-      }
-    ];
+    history.push({
+      role: 'user',
+      content: trimmedMessage,
+      createdAt: new Date().toISOString()
+    });
 
+    logger.info(
+      `[CHAT] Session ${sessionId} | Messages: ${history.length} | User: "${trimmedMessage.substring(
+        0,
+        50
+      )}"`
+    );
+
+    const messages = this.buildMessages(history);
     let finalAssistantText = '';
+    let loopCount = 0;
+    const maxLoops = 5;
 
     try {
       if (!this.apiKey) {
         throw new Error('OPENAI_API_KEY is not configured.');
       }
 
-      const messages = this.buildMessages(updatedHistory);
+      while (loopCount < maxLoops) {
+        loopCount += 1;
+        logger.info(`[OPENAI] Calling API, loop ${loopCount}`);
 
-      for (let iteration = 0; iteration < 6; iteration += 1) {
-        const assistantMessage = await this.callOpenAI(messages);
+        const { message: assistantMessage, finishReason } = await this.createChatCompletion(
+          messages,
+          {
+            includeTools: true,
+            temperature: 0.3
+          }
+        );
 
-        if (assistantMessage.tool_calls?.length) {
-          messages.push({
-            role: 'assistant',
-            content: assistantMessage.content || '',
-            tool_calls: assistantMessage.tool_calls
-          });
+        logger.info(`[OPENAI] Finish reason: ${finishReason}`);
+        messages.push(assistantMessage);
+
+        if (finishReason === 'tool_calls' && assistantMessage.tool_calls?.length) {
+          const toolMessages = [];
 
           for (const toolCall of assistantMessage.tool_calls) {
-            const toolResult = await this.executeToolCall(toolCall);
-            interactionState[toolCall.function.name] = toolResult;
+            logger.info(`[TOOL] Calling: ${toolCall.function.name}`);
+            logger.info(`[TOOL] Args: ${toolCall.function.arguments || '{}'}`);
 
-            messages.push({
+            const execution = await this.executeToolCall(toolCall, {
+              sessionId,
+              sessionData: session
+            });
+
+            interactionState[execution.toolName] = execution.toolResult;
+            session = execution.updatedSession;
+            logger.info(
+              `[TOOL] Result: ${execution.serializedResult.substring(0, 200)}`
+            );
+
+            toolMessages.push({
               role: 'tool',
               tool_call_id: toolCall.id,
-              name: toolCall.function.name,
-              content: JSON.stringify(toolResult)
+              name: execution.toolName,
+              content: execution.serializedResult
             });
           }
 
+          messages.push(...toolMessages);
           continue;
         }
 
@@ -1452,19 +1619,18 @@ Write a concise welcome-back message that feels natural and ready to continue th
 
     if (!finalAssistantText) {
       finalAssistantText =
-        "I'm sorry, I hit a snag while helping with that. Please call 555-0100 and our front desk can help right away.";
+        loopCount >= maxLoops
+          ? "I'm having a moment of confusion. Could you repeat what you'd like to do?"
+          : `I'm sorry, I hit a snag while helping with that. Please call ${OFFICE_INFO.phone} and our front desk can help right away.`;
     }
 
-    const finalHistory = [
-      ...updatedHistory,
-      {
-        role: 'assistant',
-        content: finalAssistantText,
-        createdAt: new Date().toISOString()
-      }
-    ];
+    history.push({
+      role: 'assistant',
+      content: finalAssistantText,
+      createdAt: new Date().toISOString()
+    });
 
-    await this.saveHistory(sessionId, finalHistory);
+    await this.saveHistory(sessionId, history);
     this.latestToolOutputs.set(sessionId, interactionState);
 
     return finalAssistantText;

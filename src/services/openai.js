@@ -188,6 +188,7 @@ const VOICE_HANDOFF_REPLY =
   "Of course! I can have our AI assistant call you right now to continue this conversation by voice. Just click the 'Call me instead' button on the left, and you'll receive a call at the phone number you provided. The assistant will have full context of our conversation.";
 
 const recentAvailabilityBySession = new Map();
+const pendingIntakeBySession = new Map();
 const WEEKDAY_LABELS = {
   mon: 'Monday',
   monday: 'Monday',
@@ -379,6 +380,21 @@ const SPECIALTY_QUERY_ALIASES = {
   neurologist: ['neurology', 'neurologist', 'neurological']
 };
 
+const SPECIALTY_DISPLAY_LABELS = {
+  cardiology: 'cardiology',
+  orthopedics: 'orthopedics',
+  dermatology: 'dermatology',
+  neurology: 'neurology'
+};
+
+const BOOKING_FIELD_ORDER = [
+  'patient_first_name',
+  'patient_last_name',
+  'patient_dob',
+  'patient_phone',
+  'patient_email'
+];
+
 const OUT_OF_SCOPE_KEYWORDS = [
   'stomach',
   'abdomen',
@@ -483,14 +499,16 @@ const formatSlotDateTime = (slotDateTime) =>
     month: 'long',
     day: 'numeric',
     hour: 'numeric',
-    minute: '2-digit'
+    minute: '2-digit',
+    timeZone: 'America/New_York'
   });
 
 const formatDayLabel = (slotDateTime) =>
   new Date(slotDateTime).toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
-    day: 'numeric'
+    day: 'numeric',
+    timeZone: 'America/New_York'
   });
 
 const formatCalendarDate = (slotDateTime) =>
@@ -765,6 +783,78 @@ const clearPendingSlots = async (sessionId) => {
   );
 };
 
+const getMissingBookingFields = (session = {}) =>
+  BOOKING_FIELD_ORDER.filter((field) => !String(session[field] || '').trim());
+
+const extractEmailFromText = (value = '') =>
+  String(value).match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || '';
+
+const extractDobFromText = (value = '') => {
+  const match = String(value).match(/\b(\d{2})[/-](\d{2})[/-](\d{4})\b/);
+
+  if (!match) {
+    return '';
+  }
+
+  return `${match[1]}/${match[2]}/${match[3]}`;
+};
+
+const extractPhoneFromText = (value = '') => {
+  const digits = String(value).replace(/\D/g, '');
+
+  if (digits.length === 11 && digits.startsWith('1')) {
+    return `+${digits}`;
+  }
+
+  if (digits.length === 10) {
+    return `+1${digits}`;
+  }
+
+  return '';
+};
+
+const extractNameToken = (value = '') => {
+  const cleanedValue = String(value)
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, ' ')
+    .replace(/\b\d{1,4}[/-]\d{1,2}[/-]\d{1,4}\b/g, ' ')
+    .replace(/\+?\d[\d\s().-]{7,}\d/g, ' ')
+    .replace(/[^a-zA-Z\s'-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return cleanedValue.split(/\s+/).find(Boolean) || '';
+};
+
+const buildFieldCaptureFromMessage = (message = '', expectedField = '') => {
+  const updates = {};
+  const email = extractEmailFromText(message);
+  const dob = extractDobFromText(message);
+  const phone = extractPhoneFromText(message);
+  const nameToken = extractNameToken(message);
+
+  if (email) {
+    updates.patient_email = email;
+  }
+
+  if (dob) {
+    updates.patient_dob = dob;
+  }
+
+  if (phone) {
+    updates.patient_phone = phone;
+  }
+
+  if (nameToken) {
+    if (expectedField === 'patient_first_name') {
+      updates.patient_first_name = nameToken;
+    } else if (expectedField === 'patient_last_name') {
+      updates.patient_last_name = nameToken;
+    }
+  }
+
+  return updates;
+};
+
 const storeRecentAvailability = (sessionId, availabilityContext = {}) => {
   if (!sessionId || !availabilityContext.bookingOptions?.length) {
     return;
@@ -1003,6 +1093,40 @@ const buildMissingFieldPrompt = (missingField, bodyPart) => {
   }
 };
 
+const buildGuidedFieldPrompt = (missingField, session = {}, context = {}) => {
+  const patientName = session.patient_first_name || '';
+
+  switch (missingField) {
+    case 'patient_first_name':
+    case 'first name':
+      return context.providerName
+        ? `Sorry to hear that - sounds like ${context.providerName} would be the right fit. First, what's your first name?`
+        : "Sorry to hear that - let's get you seen. First, what's your first name?";
+    case 'patient_last_name':
+    case 'last name':
+      return patientName
+        ? `Thanks, ${patientName}. What's your last name?`
+        : "Thanks. What's your last name?";
+    case 'patient_dob':
+    case 'date of birth':
+      return patientName
+        ? `Thanks, ${patientName}. What's your date of birth in MM/DD/YYYY format?`
+        : 'What is your date of birth in MM/DD/YYYY format?';
+    case 'patient_phone':
+    case 'phone':
+      return patientName
+        ? `Got it, ${patientName}. What's the best phone number for the appointment?`
+        : "What's the best phone number for the appointment?";
+    case 'patient_email':
+    case 'email':
+      return patientName
+        ? `Thanks, ${patientName}. What's the best email for your confirmation?`
+        : "What's the best email for your confirmation?";
+    default:
+      return buildMissingFieldPrompt(missingField, context.bodyPart || '');
+  }
+};
+
 const buildTrimmedConversationHistory = (history = [], session = {}) => {
   const MAX_HISTORY = 40;
 
@@ -1174,6 +1298,22 @@ const buildFallbackReply = async (sessionId, userMessage) => {
   }
 
   return 'I can help you schedule. Please tell me the reason for the visit or body part involved, plus any preferred day or time.';
+};
+
+const findPrimaryProviderForSpecialty = async (specialty = '') => {
+  const aliases = SPECIALTY_QUERY_ALIASES[specialty] || [specialty];
+  const { rows } = await query(
+    `
+      SELECT id, name, specialty
+      FROM providers
+      WHERE LOWER(specialty) = ANY($1::text[])
+      ORDER BY name
+      LIMIT 1
+    `,
+    [aliases]
+  );
+
+  return rows[0] || null;
 };
 
 export const getSessionState = async ({ session_id }) => {
@@ -1695,6 +1835,12 @@ export const bookAppointment = async (args = {}, sessionId = args.session_id) =>
   if (!patient.last_name) {
     missing.push('last name');
   }
+  if (!patient.dob) {
+    missing.push('date of birth');
+  }
+  if (!patient.phone) {
+    missing.push('phone');
+  }
   if (!patient.email) {
     missing.push('email');
   }
@@ -2131,6 +2277,162 @@ export class ChatService {
     return this.loadSession(sessionId);
   }
 
+  async startGuidedIntakeIfNeeded(sessionId, userMessage, session) {
+    const availabilityContext = getRecentAvailability(sessionId);
+
+    if (availabilityContext?.bookingOptions?.length || pendingIntakeBySession.has(sessionId)) {
+      return null;
+    }
+
+    const loweredMessage = userMessage.toLowerCase();
+    const outOfScopeKeyword = OUT_OF_SCOPE_KEYWORDS.find((keyword) =>
+      loweredMessage.includes(keyword)
+    );
+
+    if (outOfScopeKeyword) {
+      return {
+        reply: `We don't have that specialist here - ${outOfScopeKeyword} is outside our four specialties (cardiology, orthopedics, dermatology, and neurology). For that, your primary care doctor would be a great first call. Is there anything else I can help with?`,
+        interaction: {
+          get_available_slots: null,
+          book_appointment: null,
+          get_session_state: null,
+          book_waitlist: null
+        },
+        refreshSession: false
+      };
+    }
+
+    const specialty = findMatchingProviders(userMessage);
+
+    if (!specialty) {
+      return null;
+    }
+
+    const provider = await findPrimaryProviderForSpecialty(specialty);
+    const context = {
+      bodyPart: userMessage,
+      specialty,
+      providerId: provider?.id || '',
+      providerName: provider?.name || 'the right specialist',
+      specialtyLabel: SPECIALTY_DISPLAY_LABELS[specialty] || specialty
+    };
+    const missingFields = getMissingBookingFields(session);
+
+    if (!missingFields.length) {
+      const availabilityResult = await this.toolHandlers.get_available_slots(
+        {
+          session_id: sessionId,
+          body_part: userMessage
+        },
+        sessionId
+      );
+
+      return {
+        reply: availabilityResult.summary,
+        interaction: {
+          get_available_slots: availabilityResult,
+          book_appointment: null,
+          get_session_state: null,
+          book_waitlist: null
+        },
+        refreshSession: false
+      };
+    }
+
+    pendingIntakeBySession.set(sessionId, context);
+
+    return {
+      reply: buildGuidedFieldPrompt(missingFields[0], session, context),
+      interaction: {
+        get_available_slots: null,
+        book_appointment: null,
+        get_session_state: null,
+        book_waitlist: null
+      },
+      refreshSession: false
+    };
+  }
+
+  async continueGuidedBooking(sessionId, userMessage, session) {
+    const availabilityContext = getRecentAvailability(sessionId);
+    const pendingIntake = pendingIntakeBySession.get(sessionId);
+    const missingFields = getMissingBookingFields(session);
+
+    if (!pendingIntake && !availabilityContext?.selectedOptionNumber) {
+      return null;
+    }
+
+    const expectedField = missingFields[0];
+    let updatedSession = session;
+
+    if (expectedField) {
+      const capturedFields = buildFieldCaptureFromMessage(userMessage, expectedField);
+
+      if (Object.keys(capturedFields).length) {
+        updatedSession = await this.updateSessionWithCapturedData(sessionId, capturedFields);
+      }
+    }
+
+    const remainingFields = getMissingBookingFields(updatedSession);
+
+    if (remainingFields.length) {
+      return {
+        reply: buildGuidedFieldPrompt(
+          remainingFields[0],
+          updatedSession,
+          pendingIntake || availabilityContext || {}
+        ),
+        interaction: {
+          get_available_slots: availabilityContext,
+          book_appointment: null,
+          get_session_state: null,
+          book_waitlist: null
+        },
+        refreshSession: false
+      };
+    }
+
+    if (pendingIntake && !availabilityContext?.bookingOptions?.length) {
+      const availabilityResult = await this.toolHandlers.get_available_slots(
+        {
+          session_id: sessionId,
+          body_part: pendingIntake.bodyPart
+        },
+        sessionId
+      );
+
+      pendingIntakeBySession.delete(sessionId);
+
+      return {
+        reply: availabilityResult.summary,
+        interaction: {
+          get_available_slots: availabilityResult,
+          book_appointment: null,
+          get_session_state: null,
+          book_waitlist: null
+        },
+        refreshSession: true
+      };
+    }
+
+    if (availabilityContext?.selectedOptionNumber) {
+      const selectedOption = availabilityContext.bookingOptions.find(
+        (option) => option.option_number === availabilityContext.selectedOptionNumber
+      );
+
+      if (selectedOption) {
+        return this.completeBookingFromAvailability(
+          sessionId,
+          updatedSession,
+          availabilityContext,
+          selectedOption
+        );
+      }
+    }
+
+    return null;
+  }
+
   async buildReturningUserReply(sessionId, conversationHistory) {
     const sessionState = await this.toolHandlers.get_session_state({
       session_id: sessionId
@@ -2315,6 +2617,7 @@ Write a concise welcome-back message that feels natural and ready to continue th
 
     if (!bookingResult?.error) {
       recentAvailabilityBySession.delete(sessionId);
+      pendingIntakeBySession.delete(sessionId);
       return {
         reply: `You're all set! Your appointment with ${bookingResult.provider_name || bookingResult.doctor} is confirmed for ${bookingResult.date} at ${bookingResult.time}. You'll receive a confirmation email at ${bookingResult.patient_email}.`,
         interaction: {
@@ -2469,6 +2772,7 @@ Write a concise welcome-back message that feels natural and ready to continue th
 
     if (selectedOption) {
       setRecentAvailabilitySelection(sessionId, selectedOption.option_number);
+      pendingIntakeBySession.delete(sessionId);
       return this.completeBookingFromAvailability(
         sessionId,
         session,
@@ -2551,6 +2855,59 @@ Write a concise welcome-back message that feels natural and ready to continue th
       content: trimmedMessage,
       createdAt: new Date().toISOString()
     });
+
+    const guidedIntakeStart = await this.startGuidedIntakeIfNeeded(
+      sessionId,
+      trimmedMessage,
+      session
+    );
+
+    if (guidedIntakeStart) {
+      const finalHistory = [
+        ...history,
+        {
+          role: 'assistant',
+          content: guidedIntakeStart.reply,
+          createdAt: new Date().toISOString()
+        }
+      ];
+
+      await this.saveHistory(sessionId, finalHistory);
+      this.latestToolOutputs.set(sessionId, guidedIntakeStart.interaction || interactionState);
+      return guidedIntakeStart.reply;
+    }
+
+    const guidedBookingContinuation = await this.continueGuidedBooking(
+      sessionId,
+      trimmedMessage,
+      session
+    );
+
+    if (guidedBookingContinuation) {
+      const refreshedSession = guidedBookingContinuation.refreshSession
+        ? await this.loadSession(sessionId)
+        : session;
+      const finalHistory = [
+        ...history,
+        {
+          role: 'assistant',
+          content: guidedBookingContinuation.reply,
+          createdAt: new Date().toISOString()
+        }
+      ];
+
+      await this.saveHistory(sessionId, finalHistory);
+      this.latestToolOutputs.set(
+        sessionId,
+        guidedBookingContinuation.interaction || interactionState
+      );
+
+      if (guidedBookingContinuation.refreshSession) {
+        session = refreshedSession;
+      }
+
+      return guidedBookingContinuation.reply;
+    }
 
     const guidedAvailabilityResponse = await this.handleAvailabilityFollowUp(
       sessionId,

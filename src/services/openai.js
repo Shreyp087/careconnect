@@ -47,6 +47,9 @@ APPOINTMENT BOOKING FLOW:
 5. Ask the patient to pick a number.
 6. Call book_appointment with all collected information.
 7. Confirm warmly: "You're all set! Your appointment with Dr. [Name] is confirmed for [date] at [time]. You'll receive a confirmation email at [email]."
+- If the patient refines the list by saying a weekday like "Wednesday", keep the same doctor and reason, and only refresh the slots for that day.
+- If the patient replies with a number like "4" or a time like "1 PM", treat that as choosing from the current list instead of jumping back to an older list.
+- If the patient says "yes", "confirm", or "book it" right after a specific slot was discussed, treat that as confirming the latest matching slot.
 
 If get_available_slots returns error "no_slots":
 - If next_available_days are provided, explain that the requested day or time is not available for that doctor and offer the next 2 available days.
@@ -175,6 +178,26 @@ const VOICE_HANDOFF_REPLY =
   "Of course! I can have our AI assistant call you right now to continue this conversation by voice. Just click the 'Call me instead' button on the left, and you'll receive a call at the phone number you provided. The assistant will have full context of our conversation.";
 
 const recentAvailabilityBySession = new Map();
+const WEEKDAY_LABELS = {
+  mon: 'Monday',
+  monday: 'Monday',
+  tue: 'Tuesday',
+  tues: 'Tuesday',
+  tuesday: 'Tuesday',
+  wed: 'Wednesday',
+  weds: 'Wednesday',
+  wednesday: 'Wednesday',
+  thu: 'Thursday',
+  thur: 'Thursday',
+  thurs: 'Thursday',
+  thursday: 'Thursday',
+  fri: 'Friday',
+  friday: 'Friday',
+  sat: 'Saturday',
+  saturday: 'Saturday',
+  sun: 'Sunday',
+  sunday: 'Sunday'
+};
 
 const normalizeTokens = (value = '') =>
   value
@@ -513,14 +536,15 @@ const buildBookingOptions = (formattedOptions = []) =>
     spoken_text: option.text
   }));
 
-const storeRecentAvailability = (sessionId, bookingOptions = []) => {
-  if (!sessionId || !bookingOptions.length) {
+const storeRecentAvailability = (sessionId, availabilityContext = {}) => {
+  if (!sessionId || !availabilityContext.bookingOptions?.length) {
     return;
   }
 
   recentAvailabilityBySession.set(sessionId, {
     savedAt: Date.now(),
-    bookingOptions
+    ...availabilityContext,
+    selectedOptionNumber: availabilityContext.selectedOptionNumber || null
   });
 };
 
@@ -540,7 +564,7 @@ const getRecentAvailability = (sessionId) => {
     return null;
   }
 
-  return entry.bookingOptions;
+  return entry;
 };
 
 const resolveBookingSelection = ({
@@ -549,7 +573,8 @@ const resolveBookingSelection = ({
   provider_id,
   option_number
 }) => {
-  const bookingOptions = getRecentAvailability(session_id);
+  const availabilityContext = getRecentAvailability(session_id);
+  const bookingOptions = availabilityContext?.bookingOptions;
 
   if (!bookingOptions?.length) {
     return null;
@@ -590,6 +615,100 @@ const resolveBookingSelection = ({
   }
 
   return null;
+};
+
+const setRecentAvailabilitySelection = (sessionId, optionNumber) => {
+  const availabilityContext = getRecentAvailability(sessionId);
+
+  if (!availabilityContext) {
+    return null;
+  }
+
+  const updatedContext = {
+    ...availabilityContext,
+    selectedOptionNumber: optionNumber,
+    savedAt: Date.now()
+  };
+
+  recentAvailabilityBySession.set(sessionId, updatedContext);
+  return updatedContext;
+};
+
+const extractPreferredDay = (value = '') => {
+  const normalized = String(value).toLowerCase();
+
+  for (const [token, label] of Object.entries(WEEKDAY_LABELS)) {
+    if (new RegExp(`\\b${token}\\b`, 'i').test(normalized)) {
+      return label;
+    }
+  }
+
+  return null;
+};
+
+const extractNumericSelection = (value = '') => {
+  const normalized = String(value).trim().toLowerCase();
+  const match =
+    normalized.match(/(?:option|number|pick|choose)?\s*(\d{1,2})\b/) ||
+    normalized.match(/^(\d{1,2})$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return Number.parseInt(match[1], 10);
+};
+
+const extractTimeSelection = (value = '') => {
+  const normalized = String(value).trim().toLowerCase();
+
+  if (/\b(morning|afternoon|evening)\b/.test(normalized)) {
+    return normalized.match(/\b(morning|afternoon|evening)\b/)?.[1] || null;
+  }
+
+  const match = normalized.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i);
+
+  if (!match) {
+    return null;
+  }
+
+  const [, hour, minutes = '00', meridiem] = match;
+  return `${Number.parseInt(hour, 10)}:${minutes.padStart(2, '0')} ${meridiem.toUpperCase()}`;
+};
+
+const isConfirmationMessage = (value = '') =>
+  /\b(yes|yeah|yep|confirm|confirmed|book it|book it now|yes book it|yes confirm|please book|go ahead)\b/i.test(
+    value
+  );
+
+const isAnytimeMessage = (value = '') =>
+  /\b(any time|anytime|whatever works|anything works|any slot|any option)\b/i.test(
+    value
+  );
+
+const formatAvailabilityPrompt = (availabilityContext, introLine) => {
+  const options = (availabilityContext.bookingOptions || [])
+    .map((option) => option.spoken_text)
+    .join('\n');
+
+  return `${introLine}\n\n${options}\n\nPlease let me know which option you'd like to choose by selecting a number.`;
+};
+
+const buildMissingFieldPrompt = (missingField, bodyPart) => {
+  switch (missingField) {
+    case 'patient_first_name':
+      return 'Before I book that, I still need your first name.';
+    case 'patient_last_name':
+      return 'Before I book that, I still need your last name.';
+    case 'patient_dob':
+      return 'Before I book that, I still need your date of birth in MM/DD/YYYY format.';
+    case 'patient_phone':
+      return 'Before I book that, I still need your phone number.';
+    case 'patient_email':
+      return 'Before I book that, I still need your email address for the confirmation.';
+    default:
+      return `Before I book that, I still need one more detail${bodyPart ? ` for your ${bodyPart} visit` : ''}.`;
+  }
 };
 
 const normalizeProviderReference = (value = '') =>
@@ -993,7 +1112,15 @@ export const getAvailableSlots = async ({
     };
   }
 
-  storeRecentAvailability(session_id, bookingOptions);
+  storeRecentAvailability(session_id, {
+    bodyPart: body_part,
+    providerId: primaryProvider.id,
+    providerName: primaryProvider.name,
+    specialty: primaryProvider.specialty,
+    preferredDay: preferred_day || '',
+    preferredTime: preferred_time || '',
+    bookingOptions
+  });
 
   return {
     body_part,
@@ -1840,6 +1967,229 @@ Write a concise welcome-back message that feels natural and ready to continue th
     };
   }
 
+  findBookingOptionByTime(availabilityContext, userMessage) {
+    const extractedTime = extractTimeSelection(userMessage);
+
+    if (!extractedTime) {
+      return null;
+    }
+
+    const exactMatch = (availabilityContext.bookingOptions || []).find((option) => {
+      const optionTime = new Date(option.slot_datetime).toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit'
+      });
+
+      return optionTime.toUpperCase() === extractedTime.toUpperCase();
+    });
+
+    if (exactMatch) {
+      return exactMatch;
+    }
+
+    if (['morning', 'afternoon', 'evening'].includes(extractedTime)) {
+      return (availabilityContext.bookingOptions || []).find((option) =>
+        matchesPreferredTime(option.slot_datetime, extractedTime)
+      );
+    }
+
+    return null;
+  }
+
+  async completeBookingFromAvailability(sessionId, session, availabilityContext, selectedOption) {
+    const bookingResult = await this.toolHandlers.book_appointment({
+      session_id: sessionId,
+      option_number: selectedOption.option_number,
+      slot_id: selectedOption.slot_id,
+      provider_id: selectedOption.provider_id,
+      patient_first_name: session.patient_first_name,
+      patient_last_name: session.patient_last_name,
+      patient_dob: session.patient_dob,
+      patient_phone: session.patient_phone,
+      patient_email: session.patient_email,
+      reason: availabilityContext.bodyPart || '',
+      sms_opted_in: true
+    });
+
+    if (!bookingResult?.error) {
+      recentAvailabilityBySession.delete(sessionId);
+      return {
+        reply: `You're all set! Your appointment with ${bookingResult.provider_name} is confirmed for ${bookingResult.date} at ${bookingResult.time}. You'll receive a confirmation email at ${bookingResult.patient_email}.`,
+        interaction: {
+          get_available_slots: availabilityContext,
+          book_appointment: bookingResult,
+          get_session_state: null,
+          book_waitlist: null
+        },
+        refreshSession: true
+      };
+    }
+
+    if (bookingResult.error === 'missing_fields') {
+      const nextMissingField = bookingResult.missing?.[0] || '';
+      setRecentAvailabilitySelection(sessionId, selectedOption.option_number);
+      return {
+        reply: buildMissingFieldPrompt(nextMissingField, availabilityContext.bodyPart),
+        interaction: {
+          get_available_slots: availabilityContext,
+          book_appointment: bookingResult,
+          get_session_state: null,
+          book_waitlist: null
+        },
+        refreshSession: false
+      };
+    }
+
+    if (
+      bookingResult.error === 'slot_taken' ||
+      bookingResult.error === 'slot_not_found'
+    ) {
+      const refreshedAvailability = await this.toolHandlers.get_available_slots({
+        session_id: sessionId,
+        body_part: availabilityContext.bodyPart,
+        preferred_day: availabilityContext.preferredDay,
+        preferred_time: availabilityContext.preferredTime
+      });
+
+      return {
+        reply: refreshedAvailability.summary,
+        interaction: {
+          get_available_slots: refreshedAvailability,
+          book_appointment: bookingResult,
+          get_session_state: null,
+          book_waitlist: null
+        },
+        refreshSession: false
+      };
+    }
+
+    if (bookingResult.error === 'duplicate_appointment') {
+      return {
+        reply: bookingResult.message,
+        interaction: {
+          get_available_slots: availabilityContext,
+          book_appointment: bookingResult,
+          get_session_state: null,
+          book_waitlist: null
+        },
+        refreshSession: false
+      };
+    }
+
+    return {
+      reply:
+        bookingResult.message ||
+        "I'm sorry, I hit a snag while booking that appointment. Please try again.",
+      interaction: {
+        get_available_slots: availabilityContext,
+        book_appointment: bookingResult,
+        get_session_state: null,
+        book_waitlist: null
+      },
+      refreshSession: false
+    };
+  }
+
+  async handleAvailabilityFollowUp(sessionId, userMessage, session) {
+    const availabilityContext = getRecentAvailability(sessionId);
+
+    if (!availabilityContext?.bookingOptions?.length) {
+      return null;
+    }
+
+    const preferredDay = extractPreferredDay(userMessage);
+    const numericSelection = extractNumericSelection(userMessage);
+
+    if (numericSelection && numericSelection > availabilityContext.bookingOptions.length) {
+      return {
+        reply: `It seems like you selected an option that isn't available. Please choose from the available options${
+          availabilityContext.preferredDay ? ` on ${availabilityContext.preferredDay}` : ''
+        }:\n\n${availabilityContext.bookingOptions
+          .map((option) => option.spoken_text)
+          .join('\n')}\n\nLet me know which number you'd like to pick!`,
+        interaction: {
+          get_available_slots: availabilityContext,
+          book_appointment: null,
+          get_session_state: null,
+          book_waitlist: null
+        },
+        refreshSession: false
+      };
+    }
+
+    if (
+      preferredDay &&
+      preferredDay !== availabilityContext.preferredDay &&
+      availabilityContext.bodyPart
+    ) {
+      const refreshedAvailability = await this.toolHandlers.get_available_slots({
+        session_id: sessionId,
+        body_part: availabilityContext.bodyPart,
+        preferred_day: preferredDay,
+        preferred_time: availabilityContext.preferredTime
+      });
+
+      return {
+        reply: refreshedAvailability.summary,
+        interaction: {
+          get_available_slots: refreshedAvailability,
+          book_appointment: null,
+          get_session_state: null,
+          book_waitlist: null
+        },
+        refreshSession: false
+      };
+    }
+
+    let selectedOption = null;
+
+    if (numericSelection && numericSelection >= 1) {
+      selectedOption = availabilityContext.bookingOptions.find(
+        (option) => option.option_number === numericSelection
+      );
+    }
+
+    if (!selectedOption) {
+      selectedOption = this.findBookingOptionByTime(availabilityContext, userMessage);
+    }
+
+    if (!selectedOption && isConfirmationMessage(userMessage) && availabilityContext.selectedOptionNumber) {
+      selectedOption = availabilityContext.bookingOptions.find(
+        (option) => option.option_number === availabilityContext.selectedOptionNumber
+      );
+    }
+
+    if (selectedOption) {
+      setRecentAvailabilitySelection(sessionId, selectedOption.option_number);
+      return this.completeBookingFromAvailability(
+        sessionId,
+        session,
+        getRecentAvailability(sessionId) || availabilityContext,
+        selectedOption
+      );
+    }
+
+    if (isAnytimeMessage(userMessage)) {
+      return {
+        reply: formatAvailabilityPrompt(
+          availabilityContext,
+          `I still have the following available appointments with ${availabilityContext.providerName}${
+            availabilityContext.preferredDay ? ` on ${availabilityContext.preferredDay}` : ''
+          }:`
+        ),
+        interaction: {
+          get_available_slots: availabilityContext,
+          book_appointment: null,
+          get_session_state: null,
+          book_waitlist: null
+        },
+        refreshSession: false
+      };
+    }
+
+    return null;
+  }
+
   async chat(sessionId, userMessage) {
     if (!userMessage || !userMessage.trim()) {
       throw new Error('A message is required.');
@@ -1893,6 +2243,38 @@ Write a concise welcome-back message that feels natural and ready to continue th
       content: trimmedMessage,
       createdAt: new Date().toISOString()
     });
+
+    const guidedAvailabilityResponse = await this.handleAvailabilityFollowUp(
+      sessionId,
+      trimmedMessage,
+      session
+    );
+
+    if (guidedAvailabilityResponse) {
+      const refreshedSession = guidedAvailabilityResponse.refreshSession
+        ? await this.loadSession(sessionId)
+        : session;
+      const finalHistory = [
+        ...history,
+        {
+          role: 'assistant',
+          content: guidedAvailabilityResponse.reply,
+          createdAt: new Date().toISOString()
+        }
+      ];
+
+      await this.saveHistory(sessionId, finalHistory);
+      this.latestToolOutputs.set(
+        sessionId,
+        guidedAvailabilityResponse.interaction || interactionState
+      );
+
+      if (guidedAvailabilityResponse.refreshSession) {
+        session = refreshedSession;
+      }
+
+      return guidedAvailabilityResponse.reply;
+    }
 
     logger.info(
       `[CHAT] Session ${sessionId} | Messages: ${history.length} | User: "${trimmedMessage.substring(

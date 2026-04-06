@@ -9,6 +9,8 @@ import {
 
 const router = Router();
 const chatService = new ChatService();
+const INITIAL_GREETING =
+  "Hi there! I'm Aria, your patient coordinator at Greenfield Medical Practice. I can help you schedule an appointment, answer questions about our office, or point you in the right direction for prescription refills. What can I do for you today?";
 
 const mapProviderRecommendations = (toolOutput) =>
   toolOutput?.providers?.map((provider) => ({
@@ -23,6 +25,34 @@ const mapProviderRecommendations = (toolOutput) =>
       slot_datetime: slot.slot_datetime
     }))
   })) || [];
+
+const shouldUseInitialGreeting = async (sessionId, message) => {
+  const normalizedMessage = String(message || '').trim().toLowerCase();
+
+  if (!normalizedMessage) {
+    return false;
+  }
+
+  const { rows } = await query(
+    `
+      SELECT conversation_history
+      FROM sessions
+      WHERE id = $1
+    `,
+    [sessionId]
+  );
+
+  const conversationHistory = Array.isArray(rows[0]?.conversation_history)
+    ? rows[0].conversation_history
+    : [];
+  const isFirstMessage = conversationHistory.length === 0;
+
+  return (
+    normalizedMessage === '__init__' ||
+    normalizedMessage === 'hello' ||
+    (isFirstMessage && /^(hi|hello|hey|heyy|__init__)$/i.test(normalizedMessage))
+  );
+};
 
 const createSession = async (_request, response, next) => {
   try {
@@ -128,11 +158,52 @@ const postChatMessage = async (request, response, next) => {
       return response.status(400).json({ error: 'sessionId and message are required.' });
     }
 
+    if (await shouldUseInitialGreeting(sessionId, message)) {
+      const normalizedMessage = String(message).trim().toLowerCase();
+      const existingSession = await getSessionState({ session_id: sessionId }).catch(() => null);
+      const history = Array.isArray(existingSession?.conversation_history)
+        ? [...existingSession.conversation_history]
+        : [];
+      const timestamp = new Date().toISOString();
+
+      if (normalizedMessage !== '__init__') {
+        history.push({
+          role: 'user',
+          content: message.trim(),
+          createdAt: timestamp
+        });
+      }
+
+      history.push({
+        role: 'assistant',
+        content: INITIAL_GREETING,
+        createdAt: timestamp
+      });
+
+      await query(
+        `
+          INSERT INTO sessions (id, conversation_history)
+          VALUES ($1, $2::jsonb)
+          ON CONFLICT (id) DO UPDATE
+          SET conversation_history = $2::jsonb,
+              updated_at = NOW()
+        `,
+        [sessionId, JSON.stringify(history)]
+      );
+
+      return response.json({
+        reply: INITIAL_GREETING,
+        sessionId,
+        conversationHistory: history,
+        recommendedProviders: []
+      });
+    }
+
     const reply = await chatService.chat(sessionId, message);
     const latestInteraction = chatService.getLatestInteraction(sessionId);
     const state = await getSessionState({ session_id: sessionId });
     const recommendedProviders = mapProviderRecommendations(
-      latestInteraction?.get_available_slots
+      latestInteraction?.get_more_slots || latestInteraction?.get_available_slots
     );
     const conversationHistory =
       message.trim() === RETURNING_USER_SIGNAL

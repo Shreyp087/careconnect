@@ -23,79 +23,124 @@ const OFFICE_INFO = {
   pharmacyPhone: '555-0199'
 };
 
-export const SYSTEM_PROMPT = `You are Aria, a patient coordinator at Greenfield Medical Practice.
-You're warm, competent, and genuinely care about the people you talk to.
-You sound like a real person - not a chatbot, not a phone tree.
+export const SYSTEM_PROMPT = `You are Aria, the virtual patient coordinator at Greenfield Medical Practice. You are warm, human, and genuinely helpful - not a chatbot, not a phone tree. You talk like a real person who cares.
 
-## YOUR PERSONALITY
-- You're calm and unhurried. Never make anyone feel like a burden.
-- You use natural, conversational language. No corporate speak.
-- When someone shares a health concern, acknowledge it briefly before moving on.
-  Good: "Sorry to hear that - let's get you seen."
-  Bad: "I understand you are experiencing discomfort. I will now proceed to..."
-- Use the patient's first name naturally once you have it - not every message.
-- Never say "Absolutely!", "Certainly!", "Of course!", "Great question!" - they sound fake.
-- Don't repeat yourself. If something didn't work, don't say the same thing again.
-- Keep responses short. 2-4 sentences max unless listing slots.
+PERSONALITY:
+- Calm, unhurried, and empathetic. Patients are often anxious - put them at ease.
+- Natural and conversational. No corporate phrases, no filler words.
+- Brief acknowledgment when someone shares a health concern before moving forward.
+  RIGHT: "Sorry to hear that - let's get you seen as soon as possible."
+  WRONG: "I understand you are experiencing discomfort. I will now proceed to locate available appointments."
+- Use the patient's first name naturally after you learn it - not in every single message.
+- Never say: "Absolutely!", "Certainly!", "Of course!", "Great question!", "I apologize for the inconvenience"
+- Never repeat yourself. If something fails, don't say the same error message again.
+- Keep responses concise. 1-3 sentences unless showing a slot list.
+- Sound like a human front desk coordinator, not an AI assistant.
 
-## WHAT YOU CAN HELP WITH
-1. Booking appointments with our 4 specialists
-2. Office hours, address, directions
-3. Prescription refill questions (direct to pharmacy)
-4. General practice questions
+WHAT YOU CAN HELP WITH:
+1. Scheduling appointments with our specialists
+2. Answering questions about office hours, address, and directions
+3. Prescription refill guidance (direct to pharmacy)
+4. Rescheduling or canceling existing appointments
 
-## OUR DOCTORS
-- Heart, chest, blood pressure, ECG, palpitations -> Dr. Sarah Chen (Cardiology)
-- Knee, back, leg, muscle, joint, bone, shoulder, spine -> Dr. Marcus Webb (Orthopedics)
-- Skin, rash, acne, hair loss, moles, eczema -> Dr. Priya Nair (Dermatology)
-- Headache, migraine, nerve pain, dizziness, memory -> Dr. James Okafor (Neurology)
+OUR SPECIALISTS:
+- Heart, chest, ECG, blood pressure, palpitations, shortness of breath -> Dr. Sarah Chen (Cardiology)
+- Knee, back, leg, foot, muscle, joint, bone, shoulder, hip, ankle, wrist, spine, neck, sports injury, arthritis -> Dr. Marcus Webb (Orthopedics)
+- Skin, rash, acne, eczema, hair loss, moles, psoriasis, itching, lesions -> Dr. Priya Nair (Dermatology)
+- Headache, migraine, dizziness, nerve pain, numbness, memory issues, seizures, concussion -> Dr. James Okafor (Neurology)
 
-If someone asks about something outside these specialties (stomach, eyes, dental, mental health, etc.):
-Say warmly: "We don't have that specialist here - [condition] is outside our four specialties
-(cardiology, orthopedics, dermatology, and neurology). For that, your primary care doctor would
-be a great first call. Is there anything else I can help with?"
+OUT OF SCOPE (we genuinely don't have these specialists):
+Stomach/digestive issues, eyes/vision, dental, mental health/anxiety/depression,
+ear/nose/throat, gynecology, pediatrics, oncology, lung/respiratory, urology.
+When patient asks about these: "We don't have that specialist here - for [condition]
+you'd want to reach out to your primary care doctor or a [specialist type].
+Is there anything I can help with from our four specialties?"
 
-## BOOKING FLOW
-When someone wants an appointment:
-1. Figure out which doctor they need from what they describe
-2. Confirm the match casually: "Sounds like Dr. Webb would be the right fit - he's our orthopedist."
-3. Collect info ONE at a time, naturally:
-   - First name (then use it going forward)
-   - Last name
-   - Date of birth (MM/DD/YYYY)
-   - Phone number
-   - Email address
-4. Call get_available_slots - show 6 options with full date + time + day of week
-5. Let them pick - accept numbers, times, or descriptions ("the 1pm one", "Wednesday", "first available")
-6. Call book_appointment with option_number + session_id + sms_opted_in + reason
-7. Confirm warmly: "Done! You're booked with Dr. [Name] on [day], [date] at [time].
-   Confirmation email going to [email] now."
+BOOKING FLOW - follow this naturally, not robotically:
 
-## CRITICAL BOOKING RULES
-- NEVER pass slot_id or provider_id to book_appointment - only option_number
-- session_id = always "SESSION_ID_FROM_CONTEXT" (backend handles the real ID)
-- If booking fails once, call get_available_slots again and show fresh slots
-- If patient says "yes" / "confirm" / "that one" after you named a specific slot -> book it
-- "anytime" or "first available" -> option_number: 1
+Step 1 - Identify the right doctor from what they describe. If unclear, ask ONE
+question: "Which part of your body is giving you trouble?"
+
+Step 2 - Confirm match conversationally:
+"Sounds like Dr. Webb would be your best bet - he's our orthopedist and sees
+a lot of knee and leg issues."
+
+Step 3 - Collect patient info ONE field at a time, naturally:
+  -> First name (then use it)
+  -> Last name
+  -> Date of birth (ask for MM/DD/YYYY)
+  -> Phone number
+  -> Email address
+Don't list all fields at once. Collect them in natural conversation flow.
+
+Step 4 - Call get_available_slots. You can pass:
+  - body_part: what they described
+  - preferred_day: if they mentioned a day ("Tuesday", "Wednesday")
+  - preferred_after_date: ISO date string if they said "next week", "week after",
+    "in two weeks", "sometime in May", etc.
+
+Step 5 - Show slots in a clean, readable format:
+"Here's what Dr. Webb has open:
+
+1. Monday, April 14 at 9:00 AM
+2. Monday, April 14 at 11:00 AM
+3. Wednesday, April 16 at 2:00 PM
+4. Thursday, April 17 at 10:00 AM
+5. Friday, April 18 at 9:00 AM
+6. Friday, April 18 at 3:00 PM
+
+Which of these works for you?"
+
+Step 6 - Accept ANY natural selection:
+- "option 3" / "the third one" / "3" -> option_number: 3
+- "Wednesday" -> find Wednesday option, use that number
+- "the morning one" -> find morning slot, use that number
+- "2pm" / "2:00" -> find that time, use that number
+- "first available" / "any" / "doesn't matter" -> option_number: 1
 - "the last one" -> option_number: 6
+- "yes" / "that one" / "perfect" after you named a specific slot -> book that slot
 
-## HANDLING RETURNING PATIENTS
-If they already have an appointment:
-"I see you already have an appointment with Dr. [Name] on [date]. Would you like to
-keep that, reschedule, or book a separate visit?"
+Step 7 - Call book_appointment with ONLY:
+  - option_number: the resolved number (1-6)
+  - session_id: "SESSION_ID_FROM_CONTEXT"
+  - sms_opted_in: true or false
+  - reason: brief description of their concern
 
-## PRESCRIPTION REFILLS
-"For refills, your best bet is to call your pharmacy directly - they can reach out
-to the doctor's office if they need authorization. Our pharmacy line is 555-0199."
+NEVER pass slot_id, provider_id, or UUIDs. The backend handles those.
 
-## SAFETY - NON-NEGOTIABLE
-- Zero medical advice. Zero diagnoses. Zero treatment opinions.
-- If asked: "That's really a question for the doctor - I don't want to steer you wrong."
-- Emergency: "If this feels urgent or like an emergency, please call 911 or head to
-  the nearest ER right away. Don't wait."
+Step 8 - Confirm warmly:
+"You're all set! Dr. Webb will see you on Wednesday, April 16 at 2:00 PM.
+A confirmation email is on its way to [email]. See you then!"
 
-## OFFICE INFO
-Address: ${process.env.OFFICE_ADDRESS || '123 Wellness Drive, Suite 400, Springfield'}
+FLEXIBLE DATE HANDLING:
+- "do you have anything next week?" -> use preferred_after_date: [next Monday's date]
+- "sometime in April?" -> use preferred_after_date: [April 1]
+- "week after next?" -> use preferred_after_date: [date 14 days from now]
+- "any Tuesday?" -> use preferred_day: "Tuesday"
+- "Tuesday next week?" -> use both preferred_day: "Tuesday" AND preferred_after_date: [next Monday]
+- "earliest available?" -> call get_available_slots with no date preference
+- If patient doesn't like the shown options: "Want me to look at a different week?
+  Just let me know what works best."
+
+RETURNING PATIENTS:
+If session already has an appointment:
+"I see you've got an appointment with Dr. [Name] on [date] at [time] -
+would you like to keep that, reschedule, or book a follow-up visit?"
+
+PRESCRIPTION REFILLS:
+"For refills, your pharmacy is actually the fastest route - they can reach
+out to the doctor's office directly for authorization. Want me to help with
+anything else while you're here?"
+
+SAFETY (non-negotiable):
+- Zero medical advice. Zero diagnoses. Zero treatment opinions. Zero exceptions.
+- If asked about symptoms/treatment: "That's really one for the doctor - I wouldn't
+  want to steer you wrong on something like that."
+- Emergency language ("chest pain right now", "can't breathe", "severe"):
+  "If this feels like an emergency, please call 911 or head to the nearest ER
+  right now - don't wait."
+
+Office: ${process.env.OFFICE_ADDRESS || '123 Wellness Drive, Suite 400, Springfield'}
 Phone: ${process.env.OFFICE_PHONE || '555-0100'}
 Hours: Monday-Friday 8:00 AM-6:00 PM, Saturday 9:00 AM-1:00 PM`;
 
@@ -122,6 +167,35 @@ const TOOL_DEFINITIONS = [
           },
           preferred_time: {
             type: 'string'
+          }
+        },
+        required: ['body_part']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_more_slots',
+      description:
+        'Get appointment slots for a different date range when the patient wants to see different options. Use when the patient says things like "what about next week", "do you have anything later", "show me other dates", or "week after".',
+      parameters: {
+        type: 'object',
+        properties: {
+          body_part: {
+            type: 'string'
+          },
+          preferred_day: {
+            type: 'string'
+          },
+          preferred_after_date: {
+            type: 'string',
+            description: 'ISO date string. Start of the date range to search.'
+          },
+          weeks_ahead: {
+            type: 'integer',
+            description:
+              'Number of weeks ahead from today. Use 1 for next week, 2 for week after next.'
           }
         },
         required: ['body_part']
@@ -493,29 +567,32 @@ const findMatchingProviders = (bodyPart = '') => {
   return null;
 };
 
-const formatSlotDateTime = (slotDateTime) =>
-  new Date(slotDateTime).toLocaleString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
+const formatSlotTimeLabel = (slotDateTime) =>
+  new Date(slotDateTime).toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
-    timeZone: 'America/New_York'
+    hour12: true,
+    timeZone: 'UTC'
   });
+
+const formatSlotDateTime = (slotDateTime) =>
+  `${formatDayLabel(slotDateTime)} at ${formatSlotTimeLabel(slotDateTime)}`;
 
 const formatDayLabel = (slotDateTime) =>
   new Date(slotDateTime).toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
-    timeZone: 'America/New_York'
+    year: 'numeric',
+    timeZone: 'UTC'
   });
 
 const formatCalendarDate = (slotDateTime) =>
   new Date(slotDateTime).toLocaleDateString('en-US', {
     month: 'long',
     day: 'numeric',
-    timeZone: 'America/New_York'
+    year: 'numeric',
+    timeZone: 'UTC'
   });
 
 const buildConversationSummary = (conversationHistory = [], limit = CONVERSATION_SUMMARY_LIMIT) =>
@@ -567,7 +644,8 @@ const matchesPreferredDay = (slotDateTime, preferredDay) => {
 
   const normalizedPreferredDay = preferredDay.trim().toLowerCase();
   const dayName = new Date(slotDateTime).toLocaleDateString('en-US', {
-    weekday: 'long'
+    weekday: 'long',
+    timeZone: 'UTC'
   });
   const shortDayName = dayName.slice(0, 3).toLowerCase();
 
@@ -584,13 +662,8 @@ const matchesPreferredTime = (slotDateTime, preferredTime) => {
 
   const normalizedPreferredTime = preferredTime.trim().toLowerCase();
   const slotDate = new Date(slotDateTime);
-  const hour = slotDate.getHours();
-  const formattedTime = slotDate
-    .toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit'
-    })
-    .toLowerCase();
+  const hour = slotDate.getUTCHours();
+  const formattedTime = formatSlotTimeLabel(slotDateTime).toLowerCase();
 
   if (normalizedPreferredTime.includes('morning')) {
     return hour < 12;
@@ -694,6 +767,24 @@ const parsePreferredAfterDate = (value = '') => {
   return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
 };
 
+const buildWeekStartDate = (weeksAhead = 1) => {
+  const computedWeeksAhead = Number.parseInt(weeksAhead, 10);
+
+  if (!Number.isFinite(computedWeeksAhead) || computedWeeksAhead < 1) {
+    return null;
+  }
+
+  const baseDate = new Date();
+  baseDate.setUTCHours(0, 0, 0, 0);
+  baseDate.setUTCDate(baseDate.getUTCDate() + computedWeeksAhead * 7);
+
+  const dayOfWeek = baseDate.getUTCDay();
+  const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  baseDate.setUTCDate(baseDate.getUTCDate() + diffToMonday);
+
+  return baseDate;
+};
+
 const looksLikeUuid = (value = '') =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     String(value).trim()
@@ -741,11 +832,7 @@ const buildPendingSlotMap = (formattedOptions = []) =>
       specialty: option.specialty,
       slot_datetime: option.slot_datetime,
       date_formatted: formatDayLabel(option.slot_datetime),
-      time_formatted: new Date(option.slot_datetime).toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        timeZone: 'America/New_York'
-      })
+      time_formatted: formatSlotTimeLabel(option.slot_datetime)
     };
 
     return slotMap;
@@ -965,6 +1052,24 @@ const extractPreferredDay = (value = '') => {
   return null;
 };
 
+const extractWeeksAhead = (value = '') => {
+  const normalized = String(value).toLowerCase();
+
+  if (
+    /\b(week after next|week after that|in two weeks|two weeks|2 weeks|two weeks out)\b/.test(
+      normalized
+    )
+  ) {
+    return 2;
+  }
+
+  if (/\bnext week\b/.test(normalized)) {
+    return 1;
+  }
+
+  return 0;
+};
+
 const extractNumericSelection = (value = '') => {
   const normalized = String(value).trim().toLowerCase();
   const match =
@@ -1063,12 +1168,17 @@ const isAnytimeMessage = (value = '') =>
     value
   );
 
+const wantsMoreSlots = (value = '') =>
+  /\b(next week|week after|show me other|show more|other dates|anything later|later that week|different week|another week)\b/i.test(
+    value
+  );
+
 const formatAvailabilityPrompt = (availabilityContext, introLine) => {
   const options = (availabilityContext.bookingOptions || [])
     .map((option) => option.spoken_text)
     .join('\n');
 
-  return `${introLine}\n\n${options}\n\nPlease let me know which option you'd like to choose by selecting a number.`;
+  return `${introLine}\n\n${options}\n\nWhich of these works for you?`;
 };
 
 const buildMissingFieldPrompt = (missingField, bodyPart) => {
@@ -1376,6 +1486,54 @@ export const getSessionState = async ({ session_id }) => {
   };
 };
 
+const spreadSlotsAcrossDays = (slots = [], maxSlots = 6) => {
+  const groupedSlots = {};
+
+  for (const slot of slots) {
+    const dayKey = new Date(slot.slot_datetime).toISOString().slice(0, 10);
+
+    if (!groupedSlots[dayKey]) {
+      groupedSlots[dayKey] = [];
+    }
+
+    groupedSlots[dayKey].push(slot);
+  }
+
+  const spreadSlots = [];
+  const groupedValues = Object.values(groupedSlots);
+
+  for (let pass = 0; pass < 2 && spreadSlots.length < maxSlots; pass += 1) {
+    for (const daySlots of groupedValues) {
+      if (daySlots[pass]) {
+        spreadSlots.push(daySlots[pass]);
+      }
+
+      if (spreadSlots.length >= maxSlots) {
+        break;
+      }
+    }
+  }
+
+  if (spreadSlots.length < maxSlots) {
+    const seenSlotIds = new Set(spreadSlots.map((slot) => slot.slot_id));
+
+    for (const slot of slots) {
+      if (seenSlotIds.has(slot.slot_id)) {
+        continue;
+      }
+
+      spreadSlots.push(slot);
+      seenSlotIds.add(slot.slot_id);
+
+      if (spreadSlots.length >= maxSlots) {
+        break;
+      }
+    }
+  }
+
+  return spreadSlots.slice(0, maxSlots);
+};
+
 export const getAvailableSlots = async (
   {
     session_id = '',
@@ -1389,6 +1547,12 @@ export const getAvailableSlots = async (
   const activeSessionId = sessionId;
   const specialty = findMatchingProviders(body_part);
   const preferredAfterDate = parsePreferredAfterDate(preferred_after_date);
+  const dateStart = preferredAfterDate
+    ? preferredAfterDate.toISOString()
+    : new Date().toISOString();
+  const dateEnd = preferredAfterDate
+    ? new Date(preferredAfterDate.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString()
+    : new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
   const providerParams = [];
   let providerQuery = `
       SELECT id, name, specialty, body_parts, bio
@@ -1407,10 +1571,7 @@ export const getAvailableSlots = async (
     `;
   }
 
-  const providerResult = await query(
-    providerQuery,
-    providerParams
-  );
+  const providerResult = await query(providerQuery, providerParams);
 
   let matchedProviders = [];
 
@@ -1455,8 +1616,8 @@ export const getAvailableSlots = async (
     const noMatchMessage = OUT_OF_SCOPE_KEYWORDS.some((keyword) =>
       body_part.toLowerCase().includes(keyword)
     )
-      ? `We don't have that specialist here - ${body_part} is outside our four specialties (cardiology, orthopedics, dermatology, and neurology). For that, your primary care doctor would be a great first call. Is there anything else I can help with?`
-      : `We don't have a specialist for "${body_part}" at our practice. We have Cardiology (heart/chest), Orthopedics (bones/joints), Dermatology (skin/hair), and Neurology (headaches/nerves).`;
+      ? `We don't have that specialist here - for ${body_part}, you'd want to reach out to your primary care doctor or a specialist in that area. Is there anything I can help with from our four specialties?`
+      : `We don't have a specialist for "${body_part}" here. We do have cardiology, orthopedics, dermatology, and neurology if one of those would help.`;
 
     return {
       error: 'no_match',
@@ -1475,31 +1636,22 @@ export const getAvailableSlots = async (
   let primaryProviderFutureSlots = [];
 
   for (const provider of matchedProviders.slice(0, 4)) {
-    const slotQueryParams = [provider.id];
-    let dateFilter =
-      'AND slot_datetime > NOW() AND slot_datetime <= NOW() + INTERVAL \'45 days\'';
-
-    if (preferredAfterDate) {
-      slotQueryParams.push(preferredAfterDate.toISOString());
-      dateFilter =
-        'AND slot_datetime > $2::timestamptz AND slot_datetime < $2::timestamptz + INTERVAL \'14 days\'';
-    }
-
     const slotResult = await query(
       `
-        SELECT id, provider_id, slot_datetime
+        SELECT id, id AS slot_id, provider_id, slot_datetime
         FROM provider_slots
         WHERE provider_id = $1
           AND is_available = TRUE
-          ${dateFilter}
+          AND slot_datetime >= $2
+          AND slot_datetime <= $3
         ORDER BY slot_datetime
-        LIMIT 30
+        LIMIT 20
       `,
-      slotQueryParams
+      [provider.id, dateStart, dateEnd]
     );
 
-    const unfilteredSlots = slotResult.rows.map((slot) => ({
-      slot_id: slot.id,
+    const availableSlots = slotResult.rows.map((slot) => ({
+      slot_id: slot.slot_id,
       provider_id: provider.id,
       provider_name: provider.name,
       specialty: provider.specialty,
@@ -1507,26 +1659,20 @@ export const getAvailableSlots = async (
     }));
 
     if (provider.id === primaryProvider.id) {
-      primaryProviderFutureSlots = unfilteredSlots;
+      primaryProviderFutureSlots = availableSlots;
     }
 
-    const slots = unfilteredSlots
-      .filter(
-        (slot) =>
-          matchesPreferredDay(slot.slot_datetime, preferred_day) &&
-          matchesPreferredTime(slot.slot_datetime, preferred_time)
-      )
-      .slice(0, 6)
-      .map((slot) => ({
-        slot_id: slot.id,
-        provider_id: provider.id,
-        provider_name: provider.name,
-        specialty: provider.specialty,
-        slot_datetime: slot.slot_datetime,
-        display_text: `${formatSlotDateTime(slot.slot_datetime)} with ${provider.name}`
-      }));
+    const filteredSlots = availableSlots.filter(
+      (slot) =>
+        matchesPreferredDay(slot.slot_datetime, preferred_day) &&
+        matchesPreferredTime(slot.slot_datetime, preferred_time)
+    );
+    const finalSlots = spreadSlotsAcrossDays(filteredSlots, 6).map((slot) => ({
+      ...slot,
+      display_text: `${formatSlotDateTime(slot.slot_datetime)} with ${provider.name}`
+    }));
 
-    if (slots.length) {
+    if (finalSlots.length) {
       providerMatches.push({
         provider_id: provider.id,
         provider_name: provider.name,
@@ -1534,7 +1680,7 @@ export const getAvailableSlots = async (
         bio: provider.bio,
         body_parts: provider.body_parts,
         matched_terms: provider.matched_terms,
-        slots
+        slots: finalSlots
       });
     }
   }
@@ -1546,24 +1692,24 @@ export const getAvailableSlots = async (
         new Date(left.slot_datetime).getTime() - new Date(right.slot_datetime).getTime()
     )
     .slice(0, 6)
-    .map((slot, index) => ({
-      option_number: index + 1,
-      slot_id: slot.slot_id,
-      provider_id: slot.provider_id,
-      provider_name: slot.provider_name,
-      specialty: slot.specialty,
-      slot_datetime: slot.slot_datetime,
-      text: `${index + 1}. ${formatSlotDateTime(slot.slot_datetime)}`,
-      detailed_text: `${index + 1}. ${formatSlotDateTime(slot.slot_datetime)} - ${slot.provider_name} (${slot.specialty})`
-    }));
+    .map((slot, index) => {
+      const display = `${index + 1}. ${formatDayLabel(slot.slot_datetime)} at ${formatSlotTimeLabel(
+        slot.slot_datetime
+      )}`;
+
+      return {
+        option_number: index + 1,
+        slot_id: slot.slot_id,
+        provider_id: slot.provider_id,
+        provider_name: slot.provider_name,
+        specialty: slot.specialty,
+        slot_datetime: slot.slot_datetime,
+        text: display,
+        detailed_text: `${display} - ${slot.provider_name} (${slot.specialty})`
+      };
+    });
   const bookingOptions = buildBookingOptions(formattedOptions);
   const slotMap = buildPendingSlotMap(formattedOptions);
-
-  const summary = formattedOptions.length
-    ? `I have the following available with ${primaryProvider.name}:\n${formattedOptions
-        .map((option) => option.text)
-        .join('\n')}`
-    : 'I found matching specialists, but no available slots matched the preferred day or time.';
 
   if (!formattedOptions.length) {
     if (activeSessionId) {
@@ -1583,16 +1729,10 @@ export const getAvailableSlots = async (
       specialty: primaryProvider.specialty,
       next_available_days: nextAvailableDays,
       summary: nextAvailableDays.length
-        ? `We don't have ${preferred_day || preferred_time || 'that'} availability for Dr. ${primaryProvider.name.replace(
-            /^Dr\.\s*/i,
-            ''
-          )}, but I have openings on ${nextAvailableDays.join(
+        ? `I couldn't find ${preferred_day || preferred_time || 'that'} availability with ${primaryProvider.name}, but I do have openings on ${nextAvailableDays.join(
             ' and '
           )}.`
-        : `I'm sorry, Dr. ${primaryProvider.name.replace(
-            /^Dr\.\s*/i,
-            ''
-          )} doesn't have any available appointments in the next 45 days. Would you like me to add you to the waitlist, or can I help you with anything else?`
+        : `I couldn't find any open appointments with ${primaryProvider.name} in that date range. Want me to look at a different week?`
     };
   }
 
@@ -1611,6 +1751,10 @@ export const getAvailableSlots = async (
     bookingOptions
   });
 
+  const summary = `Here's what ${primaryProvider.name} has open:\n${formattedOptions
+    .map((option) => option.text)
+    .join('\n')}`;
+
   return {
     success: true,
     body_part,
@@ -1620,26 +1764,16 @@ export const getAvailableSlots = async (
     preferred_time: preferred_time || null,
     provider_name: primaryProvider.name,
     specialty: primaryProvider.specialty,
-    slots: formattedOptions.map((option) => {
-      const day = new Date(option.slot_datetime).toLocaleDateString('en-US', {
+    slots: formattedOptions.map((option) => ({
+      option_number: option.option_number,
+      day: new Date(option.slot_datetime).toLocaleDateString('en-US', {
         weekday: 'long',
-        timeZone: 'America/New_York'
-      });
-      const date = formatCalendarDate(option.slot_datetime);
-      const time = new Date(option.slot_datetime).toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        timeZone: 'America/New_York'
-      });
-
-      return {
-        option_number: option.option_number,
-        day,
-        date,
-        time,
-        display: `${option.option_number}. ${day}, ${date} at ${time}`
-      };
-    }),
+        timeZone: 'UTC'
+      }),
+      date: formatCalendarDate(option.slot_datetime),
+      time: formatSlotTimeLabel(option.slot_datetime),
+      display: option.text
+    })),
     providers: providerMatches.map((provider) => ({
       provider_name: provider.provider_name,
       specialty: provider.specialty,
@@ -1648,11 +1782,7 @@ export const getAvailableSlots = async (
       matched_terms: provider.matched_terms,
       slots: provider.slots.map((slot) => ({
         date: formatDayLabel(slot.slot_datetime),
-        time: new Date(slot.slot_datetime).toLocaleTimeString('en-US', {
-          hour: 'numeric',
-          minute: '2-digit',
-          timeZone: 'America/New_York'
-        }),
+        time: formatSlotTimeLabel(slot.slot_datetime),
         slot_datetime: slot.slot_datetime
       }))
     })),
@@ -1660,6 +1790,20 @@ export const getAvailableSlots = async (
       'Show these slots in a clean numbered list. Use full date format. After listing, ask which works for them - keep it brief and natural.',
     summary
   };
+};
+
+export const getMoreSlots = async (args = {}, sessionId = args.session_id) => {
+  const nextArgs = { ...args };
+
+  if (!nextArgs.preferred_after_date && nextArgs.weeks_ahead) {
+    const computedWeekStart = buildWeekStartDate(nextArgs.weeks_ahead);
+
+    if (computedWeekStart) {
+      nextArgs.preferred_after_date = computedWeekStart.toISOString();
+    }
+  }
+
+  return getAvailableSlots(nextArgs, sessionId);
 };
 
 export const bookWaitlist = async ({
@@ -2104,6 +2248,7 @@ export const bookAppointment = async (args = {}, sessionId = args.session_id) =>
 
 export const ariaToolHandlers = {
   get_available_slots: getAvailableSlots,
+  get_more_slots: getMoreSlots,
   book_appointment: bookAppointment,
   get_session_state: getSessionState,
   book_waitlist: bookWaitlist
@@ -2291,7 +2436,7 @@ export class ChatService {
 
     if (outOfScopeKeyword) {
       return {
-        reply: `We don't have that specialist here - ${outOfScopeKeyword} is outside our four specialties (cardiology, orthopedics, dermatology, and neurology). For that, your primary care doctor would be a great first call. Is there anything else I can help with?`,
+        reply: `We don't have that specialist here - for ${outOfScopeKeyword}, you'd want to reach out to your primary care doctor or a specialist in that area. Is there anything I can help with from our four specialties?`,
         interaction: {
           get_available_slots: null,
           book_appointment: null,
@@ -2510,6 +2655,19 @@ Write a concise welcome-back message that feels natural and ready to continue th
             ...parsedArguments
           };
           break;
+        case 'get_more_slots':
+          toolResult = await this.toolHandlers.get_more_slots(
+            {
+              session_id: sessionId,
+              ...parsedArguments
+            },
+            sessionId
+          );
+          parsedArguments = {
+            session_id: sessionId,
+            ...parsedArguments
+          };
+          break;
         case 'book_appointment': {
           const mergedArguments = {
             ...parsedArguments,
@@ -2586,10 +2744,7 @@ Write a concise welcome-back message that feels natural and ready to continue th
     }
 
     const exactMatch = (availabilityContext.bookingOptions || []).find((option) => {
-      const optionTime = new Date(option.slot_datetime).toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit'
-      });
+      const optionTime = formatSlotTimeLabel(option.slot_datetime);
 
       return optionTime.toUpperCase() === extractedTime.toUpperCase();
     });
@@ -2708,6 +2863,7 @@ Write a concise welcome-back message that feels natural and ready to continue th
     }
 
     const preferredDay = extractPreferredDay(userMessage);
+    const weeksAhead = extractWeeksAhead(userMessage);
     const numericSelection = extractNumericSelection(userMessage);
 
     if (numericSelection && numericSelection > availabilityContext.bookingOptions.length) {
@@ -2719,6 +2875,32 @@ Write a concise welcome-back message that feels natural and ready to continue th
           .join('\n')}\n\nLet me know which number you'd like to pick!`,
         interaction: {
           get_available_slots: availabilityContext,
+          book_appointment: null,
+          get_session_state: null,
+          book_waitlist: null
+        },
+        refreshSession: false
+      };
+    }
+
+    if (availabilityContext.bodyPart && (weeksAhead || wantsMoreSlots(userMessage))) {
+      const refreshedAvailability = await this.toolHandlers.get_more_slots(
+        {
+          session_id: sessionId,
+          body_part: availabilityContext.bodyPart,
+          preferred_day: preferredDay || availabilityContext.preferredDay,
+          preferred_after_date: availabilityContext.preferredAfterDate,
+          preferred_time: availabilityContext.preferredTime,
+          weeks_ahead: weeksAhead || 1
+        },
+        sessionId
+      );
+
+      return {
+        reply: refreshedAvailability.summary,
+        interaction: {
+          get_available_slots: null,
+          get_more_slots: refreshedAvailability,
           book_appointment: null,
           get_session_state: null,
           book_waitlist: null

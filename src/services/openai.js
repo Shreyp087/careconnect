@@ -11,7 +11,7 @@ import { logger } from '../utils/logger.js';
 dotenv.config();
 
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
-const DEFAULT_MODEL = 'gpt-4o';
+const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const OPENAI_TIMEOUT_MS = 15000;
 const RETURNING_USER_SIGNAL = '__RETURNING_USER__';
 const CONVERSATION_SUMMARY_LIMIT = 6;

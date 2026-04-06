@@ -33,6 +33,7 @@ PERSONALITY:
 - Keep responses short: 1-3 sentences unless showing a slot list.
 - Never repeat the same error message twice. If something fails once, try a different approach.
 - Sound like a warm, competent front desk coordinator.
+- If the patient corrects you, acknowledge it briefly and recover without arguing.
 
 WHAT YOU HELP WITH:
 1. Scheduling appointments with our four specialists
@@ -301,6 +302,34 @@ const normalizeTokens = (value = '') =>
       return token;
     });
 
+const escapeRegExp = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const matchesKeywordPhrase = (input = '', keyword = '') => {
+  const normalizedInput = ` ${String(input).toLowerCase()} `;
+  const normalizedKeyword = String(keyword).toLowerCase().trim();
+
+  if (!normalizedKeyword) {
+    return false;
+  }
+
+  return new RegExp(`(^|[^a-z0-9])${escapeRegExp(normalizedKeyword)}([^a-z0-9]|$)`, 'i').test(
+    normalizedInput
+  );
+};
+
+const findOutOfScopeKeyword = (input = '') =>
+  OUT_OF_SCOPE_KEYWORDS.find((keyword) => matchesKeywordPhrase(input, keyword)) || '';
+
+const isSchedulingIntentWithoutSymptom = (message = '') =>
+  /\b(book|schedule|appointment|see (?:a|the) doctor|visit|checkup|check-up)\b/i.test(
+    String(message)
+  );
+
+const isCorrectionMessage = (message = '') =>
+  /\b(i did(?:n't| not) say|that's not|that is not|no i said|i said|not ent|wrong specialist)\b/i.test(
+    String(message)
+  );
+
 const SPECIALTY_KEYWORD_MAP = {
   headache: 'neurology', headaches: 'neurology', migraine: 'neurology',
   migraines: 'neurology', dizzy: 'neurology', dizziness: 'neurology',
@@ -399,7 +428,7 @@ const findMatchingProviders = (bodyPart = '') => {
   );
 
   for (const keyword of sortedKeywords) {
-    if (input.includes(keyword)) {
+    if (matchesKeywordPhrase(input, keyword)) {
       return SPECIALTY_KEYWORD_MAP[keyword];
     }
   }
@@ -1560,11 +1589,10 @@ export const getAvailableSlots = async (
       await clearPendingSlots(activeSessionId);
     }
 
-    const noMatchMessage = OUT_OF_SCOPE_KEYWORDS.some((keyword) =>
-      body_part.toLowerCase().includes(keyword)
-    )
-      ? `We don't have that specialist here - for ${body_part}, you'd want to reach out to your primary care doctor or a specialist in that area. Is there anything I can help with from our four specialties?`
-      : `We don't have a specialist for "${body_part}" here. We do have cardiology, orthopedics, dermatology, and neurology if one of those would help.`;
+    const outOfScopeKeyword = findOutOfScopeKeyword(body_part);
+    const noMatchMessage = outOfScopeKeyword
+      ? `We don't have that specialist here - for ${outOfScopeKeyword}, you'd want to reach out to your primary care doctor or a specialist in that area. Is there anything I can help with from our four specialties?`
+      : `I can help with scheduling. What body part or concern would you like to be seen for? We have cardiology, orthopedics, dermatology, and neurology.`;
 
     return {
       error: 'no_match',
@@ -2376,12 +2404,23 @@ export class ChatService {
       return null;
     }
 
-    const loweredMessage = userMessage.toLowerCase();
-    const outOfScopeKeyword = OUT_OF_SCOPE_KEYWORDS.find((keyword) =>
-      loweredMessage.includes(keyword)
-    );
+    const outOfScopeKeyword = findOutOfScopeKeyword(userMessage);
 
     if (outOfScopeKeyword) {
+      if (isCorrectionMessage(userMessage)) {
+        return {
+          reply:
+            "You're right — let's reset that. What body part or concern do you want to be seen for?",
+          interaction: {
+            get_available_slots: null,
+            book_appointment: null,
+            get_session_state: null,
+            book_waitlist: null
+          },
+          refreshSession: false
+        };
+      }
+
       return {
         reply: `We don't have that specialist here - for ${outOfScopeKeyword}, you'd want to reach out to your primary care doctor or a specialist in that area. Is there anything I can help with from our four specialties?`,
         interaction: {
@@ -2397,6 +2436,20 @@ export class ChatService {
     const specialty = findMatchingProviders(userMessage);
 
     if (!specialty) {
+      if (isSchedulingIntentWithoutSymptom(userMessage) || isCorrectionMessage(userMessage)) {
+        return {
+          reply:
+            'I can help with that. What body part or concern would you like to be seen for?',
+          interaction: {
+            get_available_slots: null,
+            book_appointment: null,
+            get_session_state: null,
+            book_waitlist: null
+          },
+          refreshSession: false
+        };
+      }
+
       return null;
     }
 

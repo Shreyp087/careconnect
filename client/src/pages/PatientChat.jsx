@@ -306,10 +306,10 @@ function PaperPlaneIcon() {
 function TypingIndicator() {
   return (
     <div className="patient-chat-message-in flex items-end gap-3">
-      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#0EA5E9] text-xs font-semibold text-white">
+      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#67D7C4] text-xs font-semibold text-[#0F2425] shadow-sm">
         A
       </div>
-      <div className="rounded-2xl rounded-tl-sm bg-[#F8F9FA] px-4 py-3 shadow-sm">
+      <div className="rounded-2xl rounded-tl-sm border border-white/80 bg-white/92 px-4 py-3 shadow-[0_12px_30px_rgba(18,37,38,0.08)]">
         <div className="flex items-center gap-1.5">
           {[0, 1, 2].map((dot) => (
             <span
@@ -336,7 +336,7 @@ function SuggestionPill({ children, onClick, disabled }) {
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex min-h-11 items-center justify-center rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:border-sky-400 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+      className="inline-flex min-h-11 items-center justify-center rounded-full border border-white/80 bg-white/82 px-4 py-2 text-sm font-medium text-[#183436] shadow-sm transition-all duration-150 hover:border-[#67D7C4] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
     >
       {children}
     </button>
@@ -372,7 +372,7 @@ function MessageItem({
     return (
       <div className="patient-chat-message-in flex justify-end">
         <div className="max-w-[88%] md:max-w-[75%]">
-          <div className="rounded-2xl rounded-tr-sm bg-[#0EA5E9] px-4 py-3 text-sm leading-6 text-white shadow-sm whitespace-pre-wrap">
+          <div className="rounded-2xl rounded-tr-sm bg-[linear-gradient(135deg,#67D7C4_0%,#2DCAB3_100%)] px-4 py-3 text-sm leading-6 text-[#0F2425] shadow-[0_16px_34px_rgba(45,202,179,0.24)] whitespace-pre-wrap">
             {cleanedContent}
           </div>
           <p className="mt-1 text-right text-[11px] text-slate-400">{timestamp}</p>
@@ -383,15 +383,15 @@ function MessageItem({
 
   return (
     <div className="patient-chat-message-in flex items-end gap-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0EA5E9] text-xs font-semibold text-white">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#67D7C4] text-xs font-semibold text-[#0F2425] shadow-sm">
         A
       </div>
       <div className="max-w-[92%] md:max-w-[75%]">
-        <div className="rounded-2xl rounded-tl-sm bg-[#F8F9FA] px-4 py-3 text-sm leading-6 text-[#1A1A2E] shadow-sm whitespace-pre-wrap">
+        <div className="rounded-2xl rounded-tl-sm border border-white/80 bg-[linear-gradient(180deg,#FFFFFF_0%,#F6FAF7_100%)] px-4 py-3 text-sm leading-6 text-[#1A2B2D] shadow-[0_12px_32px_rgba(18,37,38,0.08)] whitespace-pre-wrap">
           {displayContent}
         </div>
         {slotMessage && parsedSlots.length ? (
-          <div className="mt-3 rounded-2xl border border-slate-200 bg-[#F8F9FA] p-3 shadow-sm">
+          <div className="mt-3 rounded-[24px] border border-white/85 bg-[linear-gradient(180deg,#FFFFFF_0%,#F5F8F4_100%)] p-3 shadow-[0_16px_36px_rgba(18,37,38,0.08)]">
             {selectedSlot ? (
               <div className="mt-2 flex items-center gap-2 rounded-[10px] border border-green-300 bg-green-50 px-3.5 py-2.5">
                 <span className="text-base text-green-600">✓</span>
@@ -406,7 +406,7 @@ function MessageItem({
                     type="button"
                     onClick={() => onDateBack(messageKey)}
                     disabled={slotPickerDisabled}
-                    className="inline-flex items-center gap-1 text-[13px] font-medium text-sky-500 transition hover:text-sky-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex items-center gap-1 text-[13px] font-medium text-[#2A8F84] transition hover:text-[#1D7268] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <span aria-hidden="true">←</span>
                     Back
@@ -416,7 +416,7 @@ function MessageItem({
                   </span>
                 </div>
 
-                <div className="mb-2.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700">
+                <div className="mb-2.5 rounded-2xl border border-[#B7EADF] bg-[#ECFAF6] px-3 py-2 text-sm font-medium text-[#246A63]">
                   <span aria-hidden="true" className="mr-2">
                     📅
                   </span>
@@ -433,9 +433,9 @@ function MessageItem({
                       type="button"
                       onClick={() => onTimeSelect(messageKey, slot)}
                       disabled={slotPickerDisabled}
-                      className="rounded-[10px] border border-slate-200 bg-white px-3 py-3 text-center transition-all duration-150 hover:border-sky-500 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-[14px] border border-slate-200 bg-white px-3 py-3 text-center transition-all duration-150 hover:border-[#67D7C4] hover:bg-[#F0FBF8] disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <div className="text-base font-bold text-sky-500">{slot.time}</div>
+                      <div className="text-base font-bold text-[#2A8F84]">{slot.time}</div>
                     </button>
                   ))}
                 </div>
@@ -453,9 +453,9 @@ function MessageItem({
                       type="button"
                       onClick={() => onDateSelect(messageKey, slot.date)}
                       disabled={slotPickerDisabled}
-                      className="rounded-xl border-[1.5px] border-slate-200 bg-white px-4 py-3.5 text-left transition-all duration-150 hover:border-sky-500 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-[18px] border-[1.5px] border-slate-200 bg-white px-4 py-3.5 text-left transition-all duration-150 hover:border-[#67D7C4] hover:bg-[#F0FBF8] disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-sky-500">
+                      <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-[#2A8F84]">
                         {slot.day}
                       </div>
                       <div className="text-[15px] font-semibold text-slate-900">
@@ -469,7 +469,7 @@ function MessageItem({
                   type="button"
                   onClick={onShowDifferentDates}
                   disabled={showDifferentDatesDisabled}
-                  className="mt-2.5 w-full rounded-lg border border-slate-200 px-3.5 py-2 text-sm text-slate-500 transition hover:border-slate-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                  className="mt-2.5 w-full rounded-full border border-slate-200 px-3.5 py-2 text-sm text-slate-500 transition hover:border-[#67D7C4] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Show different dates →
                 </button>
@@ -872,13 +872,13 @@ export default function PatientChat() {
   };
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#F3F4F6] text-slate-900">
-      <header className="flex h-14 items-center justify-between border-b border-[#F0F0F0] bg-white px-4 md:px-6">
+    <div className="flex h-screen flex-col overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(103,215,196,0.18),_transparent_24%),radial-gradient(circle_at_85%_10%,_rgba(204,184,171,0.18),_transparent_22%),linear-gradient(180deg,#F7FAF6_0%,#EEF3EC_100%)] text-slate-900">
+      <header className="flex h-14 items-center justify-between border-b border-white/80 bg-white/80 px-4 backdrop-blur md:px-6">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => setIsSidebarOpen(true)}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100 md:hidden"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition hover:bg-white md:hidden"
             aria-label="Open sidebar"
           >
             <MenuIcon />
@@ -907,7 +907,7 @@ export default function PatientChat() {
         />
 
         <aside
-          className={`fixed inset-y-0 left-0 top-14 z-40 flex w-80 max-w-[88vw] flex-col bg-[#0F1117] text-white transition-transform duration-300 md:static md:top-0 md:z-0 md:w-80 md:max-w-none md:translate-x-0 md:border-r md:border-white/5 ${
+          className={`fixed inset-y-0 left-0 top-14 z-40 flex w-80 max-w-[88vw] flex-col bg-[linear-gradient(180deg,#183133_0%,#223D40_100%)] text-white transition-transform duration-300 md:static md:top-0 md:z-0 md:w-80 md:max-w-none md:translate-x-0 md:border-r md:border-white/10 ${
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
         >
@@ -927,7 +927,7 @@ export default function PatientChat() {
 
           <div className="flex h-full flex-col overflow-y-auto pb-6">
             <div className="px-4 pt-5">
-              <div className="flex items-center gap-3 rounded-xl bg-white/5 px-4 py-3">
+              <div className="flex items-center gap-3 rounded-[20px] border border-white/10 bg-white/5 px-4 py-3">
                 <span className="relative flex h-3 w-3">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                   <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-400" />
@@ -936,7 +936,7 @@ export default function PatientChat() {
               </div>
             </div>
 
-            <div className="mx-4 my-3 rounded-xl bg-[#1A1D2E] p-4">
+            <div className="mx-4 my-3 rounded-[24px] border border-white/10 bg-white/6 p-4 shadow-[0_20px_40px_rgba(0,0,0,0.16)]">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/55">
                 Greenfield Medical Practice
               </p>
@@ -967,21 +967,21 @@ export default function PatientChat() {
             </div>
 
             {appointment ? (
-              <div className="mx-4 rounded-xl bg-gradient-to-br from-sky-500 to-sky-600 p-4 text-white shadow-lg shadow-sky-500/25">
+              <div className="mx-4 rounded-[24px] bg-[linear-gradient(135deg,#67D7C4_0%,#2DCAB3_100%)] p-4 text-[#0F2425] shadow-[0_18px_36px_rgba(45,202,179,0.28)]">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/70">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0F2425]/65">
                       Upcoming Visit
                     </p>
                     <p className="mt-2 text-xl font-semibold">{appointment.provider_name}</p>
-                    <p className="mt-2 text-sm text-white/80">
+                    <p className="mt-2 text-sm text-[#0F2425]/75">
                       {formatAppointmentBannerDate(appointment.slot_datetime)}
                     </p>
-                    <p className="text-sm text-white/80">
+                    <p className="text-sm text-[#0F2425]/75">
                       {formatAppointmentBannerTime(appointment.slot_datetime)}
                     </p>
                   </div>
-                  <span className="rounded-full bg-white/15 p-2 text-white">
+                  <span className="rounded-full bg-white/30 p-2 text-[#0F2425]">
                     <CalendarIcon />
                   </span>
                 </div>
@@ -994,18 +994,18 @@ export default function PatientChat() {
                 onClick={handleCallButtonClick}
                 title={!patientPhone ? 'Chat first to enable' : undefined}
                 disabled={!canInitiateVoiceCall || isCallInProgress}
-                className={`w-full rounded-xl border px-4 py-4 text-left transition-all duration-200 ${
+                className={`w-full rounded-[24px] border px-4 py-4 text-left transition-all duration-200 ${
                   isCallInProgress
-                    ? 'border-emerald-400/40 bg-emerald-500/20 text-white'
+                    ? 'border-[#67D7C4]/40 bg-[#67D7C4]/20 text-white'
                     : patientPhone
-                      ? 'border-white/20 bg-white/5 text-white hover:bg-white/12'
+                      ? 'border-white/20 bg-white/8 text-white hover:bg-white/12'
                       : 'border-white/10 bg-white/[0.04] text-white/75 hover:bg-white/[0.08]'
                 } ${
                   !canInitiateVoiceCall ? 'cursor-not-allowed opacity-70' : ''
                 }`}
               >
                 <div className="flex items-center gap-3">
-                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-sky-300">
+                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-[#67D7C4]">
                     <PhoneIcon />
                   </span>
                   <div>
@@ -1037,8 +1037,8 @@ export default function PatientChat() {
           </div>
         </aside>
 
-        <main className="flex min-w-0 flex-1 flex-col bg-white">
-          <div className="flex items-center justify-between border-b border-[#F0F0F0] px-4 py-4 md:px-6">
+        <main className="flex min-w-0 flex-1 flex-col bg-[rgba(255,255,255,0.46)] backdrop-blur">
+          <div className="flex items-center justify-between border-b border-white/80 bg-white/55 px-4 py-4 backdrop-blur md:px-6">
             <div>
               <h1 className="text-lg font-medium text-slate-900">Chat with Aria</h1>
               <p className="text-sm text-slate-500">
@@ -1048,7 +1048,7 @@ export default function PatientChat() {
             <button
               type="button"
               onClick={handleNewConversation}
-              className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-200 px-4 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+              className="zoox-outline-button min-h-10 px-4"
               disabled={loadingSession || isTyping}
             >
               New conversation
@@ -1057,12 +1057,12 @@ export default function PatientChat() {
 
           <div
             id="patient-chat-thread"
-            className="min-h-0 flex-1 overflow-y-auto bg-white px-4 py-5 md:px-6"
+            className="min-h-0 flex-1 overflow-y-auto bg-transparent px-4 py-5 md:px-6"
           >
             <div className="mx-auto flex h-full w-full max-w-5xl flex-col">
               {showWelcomeState ? (
                 <div className="flex flex-1 flex-col items-center justify-center px-2 text-center">
-                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#0EA5E9] text-2xl font-semibold text-white">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[linear-gradient(135deg,#67D7C4_0%,#2DCAB3_100%)] text-2xl font-semibold text-[#0F2425] shadow-[0_16px_34px_rgba(45,202,179,0.24)]">
                     A
                   </div>
                   <h2 className="mt-6 text-3xl font-semibold text-slate-900">Hi, I&apos;m Aria</h2>
@@ -1114,7 +1114,7 @@ export default function PatientChat() {
             </div>
           </div>
 
-          <div className="border-t border-[#F0F0F0] bg-white px-4 py-4 md:px-6">
+          <div className="border-t border-white/80 bg-white/70 px-4 py-4 backdrop-blur md:px-6">
             {error ? (
               <div className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                 {error}
@@ -1134,13 +1134,13 @@ export default function PatientChat() {
                     onChange={(event) => setMessageInput(event.target.value)}
                     onKeyDown={handleComposerKeyDown}
                     placeholder="Message Aria..."
-                    className="min-h-11 w-full rounded-full border border-[#E5E7EB] bg-[#F8F9FA] px-5 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0EA5E9] focus:ring-4 focus:ring-sky-50 placeholder:text-slate-400"
+                    className="min-h-11 w-full rounded-full border border-white/90 bg-white/90 px-5 py-3 text-sm text-slate-900 outline-none transition focus:border-[#67D7C4] focus:ring-4 focus:ring-[#D8F5EE] placeholder:text-slate-400"
                     disabled={loadingSession || isTyping || isSendingRef.current}
                   />
                 </div>
                 <button
                   type="submit"
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#0EA5E9] text-white transition-all duration-150 hover:bg-[#0284C7] active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[linear-gradient(135deg,#67D7C4_0%,#2DCAB3_100%)] text-[#0F2425] transition-all duration-150 hover:brightness-105 active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
                   disabled={
                     !messageInput.trim() ||
                     loadingSession ||
@@ -1171,7 +1171,7 @@ export default function PatientChat() {
 
       {showCallModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4">
-          <div className="w-full max-w-md rounded-[28px] bg-white p-6 shadow-2xl">
+          <div className="w-full max-w-md rounded-[32px] border border-white/80 bg-[linear-gradient(180deg,#FFFFFF_0%,#F6F9F4_100%)] p-6 shadow-[0_28px_80px_rgba(18,37,38,0.18)]">
             <h2 className="text-2xl font-semibold text-slate-900">Continue by phone?</h2>
             <p className="mt-3 text-sm leading-6 text-slate-600">
               Enter the best number to reach you and Aria will call right away. She&apos;ll keep
@@ -1187,7 +1187,7 @@ export default function PatientChat() {
               value={callPhoneInput}
               onChange={(event) => setCallPhoneInput(event.target.value)}
               placeholder="(555) 555-5555"
-              className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
+              className="mt-2 w-full rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-[#67D7C4] focus:ring-4 focus:ring-[#D8F5EE]"
               disabled={isInitiatingCall}
             />
 
@@ -1212,7 +1212,7 @@ export default function PatientChat() {
               <button
                 type="button"
                 onClick={handleCallConfirm}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-[#0EA5E9] px-4 text-sm font-semibold text-white transition hover:bg-[#0284C7] disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#67D7C4_0%,#2DCAB3_100%)] px-4 text-sm font-semibold text-[#0F2425] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={isInitiatingCall || !callPhoneInput.trim()}
               >
                 {isInitiatingCall ? (

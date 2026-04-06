@@ -114,9 +114,9 @@ export default function Landing() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0A0A0F] text-white">
+    <div className="min-h-screen bg-[#EEF3EC] text-[#122526]">
       <section className="landing-grid relative min-h-screen overflow-hidden px-5 pb-10 pt-5 sm:px-8 lg:px-12">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(0,194,255,0.16),transparent_34%),radial-gradient(circle_at_80%_20%,rgba(255,255,255,0.06),transparent_22%)]" />
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(103,215,196,0.2),transparent_34%),radial-gradient(circle_at_80%_20%,rgba(204,184,171,0.18),transparent_24%)]" />
 
         <nav className="relative z-10 mx-auto flex w-full max-w-7xl items-center justify-between py-4">
           <button
@@ -124,7 +124,7 @@ export default function Landing() {
             onClick={() => navigate('/')}
             className="text-left"
           >
-            <p className="text-xs font-semibold uppercase tracking-[0.36em] text-white/55">
+            <p className="text-xs font-semibold uppercase tracking-[0.36em] text-[#295256]/65">
               Greenfield Medical
             </p>
           </button>
@@ -132,7 +132,7 @@ export default function Landing() {
           <button
             type="button"
             onClick={() => navigate('/patient')}
-            className="min-h-11 rounded-full border border-white/60 px-5 text-sm font-semibold text-white transition hover:bg-white hover:text-black"
+            className="zoox-outline-button min-h-11 px-5"
           >
             Patient Portal
           </button>
@@ -140,36 +140,36 @@ export default function Landing() {
 
         <div className="relative z-10 mx-auto flex min-h-[calc(100vh-88px)] w-full max-w-7xl flex-col items-center justify-center text-center">
           <div className="fade-up max-w-4xl">
-            <p className="mb-6 text-sm font-medium uppercase tracking-[0.34em] text-[#00C2FF]">
+            <p className="mb-6 text-sm font-medium uppercase tracking-[0.34em] text-[#2a8f84]">
               Greenfield Medical Practice
             </p>
-            <h1 className="mx-auto max-w-4xl text-[clamp(3.4rem,9vw,7.2rem)] leading-[0.94] text-white">
+            <h1 className="mx-auto max-w-4xl text-[clamp(3.4rem,9vw,7.2rem)] leading-[0.94] text-[#102223]">
               Healthcare that
               <br />
               fits your life.
             </h1>
-            <p className="mx-auto mt-7 max-w-2xl text-base leading-7 text-gray-400 sm:text-lg">
+            <p className="mx-auto mt-7 max-w-2xl text-base leading-7 text-[#53696b] sm:text-lg">
               Schedule appointments, get answers, and stay connected — all in one place.
             </p>
             <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
               <button
                 type="button"
                 onClick={() => navigate('/patient')}
-                className="min-h-11 rounded-full bg-[#00C2FF] px-8 py-4 text-base font-semibold text-[#04131A] transition hover:-translate-y-0.5 hover:bg-[#34d0ff]"
+                className="zoox-primary-button min-h-11 px-8 py-4 text-base"
               >
                 Get Started
               </button>
               <button
                 type="button"
                 onClick={scrollToProcess}
-                className="min-h-11 rounded-full border border-white/60 px-8 py-4 text-base font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white hover:text-black"
+                className="zoox-outline-button min-h-11 px-8 py-4 text-base"
               >
                 Learn More
               </button>
             </div>
           </div>
 
-          <div className="fade-up absolute bottom-8 left-1/2 -translate-x-1/2 text-white/50" style={{ transitionDelay: '180ms' }}>
+          <div className="fade-up absolute bottom-8 left-1/2 -translate-x-1/2 text-[#466769]/70" style={{ transitionDelay: '180ms' }}>
             <div className="flex flex-col items-center gap-3">
               <span className="text-xs uppercase tracking-[0.3em]">Scroll</span>
               <svg
@@ -187,10 +187,10 @@ export default function Landing() {
         </div>
       </section>
 
-      <section id={processSectionId} className="px-5 py-20 sm:px-8 lg:px-12">
+      <section id={processSectionId} className="bg-[#20383B] px-5 py-20 text-white sm:px-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
           <div className="fade-up max-w-2xl">
-            <p className="text-sm font-semibold uppercase tracking-[0.34em] text-[#00C2FF]">
+            <p className="text-sm font-semibold uppercase tracking-[0.34em] text-[#67D7C4]">
               The Process
             </p>
             <h2 className="mt-4 text-[clamp(2.4rem,5vw,4.5rem)] leading-[0.98] text-white">
@@ -202,28 +202,31 @@ export default function Landing() {
             {processSteps.map((step, index) => (
               <article
                 key={step.title}
-                className="fade-up rounded-3xl border border-white/6 bg-[#141418] p-6 shadow-[0_20px_40px_rgba(0,0,0,0.35)] transition duration-300 hover:-translate-y-1 hover:border-[#00C2FF] hover:shadow-[0_24px_54px_rgba(0,194,255,0.14)]"
+                className="fade-up rounded-[30px] border border-white/10 bg-white/6 p-6 shadow-[0_20px_40px_rgba(0,0,0,0.18)] transition duration-300 hover:-translate-y-1 hover:border-[#67D7C4] hover:bg-white/10 hover:shadow-[0_24px_54px_rgba(103,215,196,0.14)]"
                 style={{
                   borderTopWidth: '2px',
-                  borderTopColor: '#00C2FF',
+                  borderTopColor: '#67D7C4',
                   transitionDelay: `${index * 120}ms`
                 }}
               >
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#0D1B24] text-[#00C2FF]">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/10 text-[#67D7C4]">
                   {step.icon}
                 </div>
                 <h3 className="mt-6 text-3xl text-white">{step.title}</h3>
-                <p className="mt-4 text-sm leading-7 text-gray-400">{step.description}</p>
+                <p className="mt-4 text-sm leading-7 text-white/68">{step.description}</p>
               </article>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="px-5 py-20 sm:px-8 lg:px-12">
+      <section className="bg-[#F4F1EA] px-5 py-20 sm:px-8 lg:px-12">
         <div className="mx-auto max-w-7xl">
           <div className="fade-up max-w-2xl">
-            <h2 className="text-[clamp(2.4rem,5vw,4.5rem)] leading-[0.98] text-white">
+            <p className="text-sm font-semibold uppercase tracking-[0.34em] text-[#2a8f84]">
+              Our Doctors
+            </p>
+            <h2 className="mt-4 text-[clamp(2.4rem,5vw,4.5rem)] leading-[0.98] text-[#122526]">
               Specialists who listen.
             </h2>
           </div>
@@ -232,48 +235,48 @@ export default function Landing() {
             {specialists.map((doctor, index) => (
               <article
                 key={doctor.name}
-                className="fade-up rounded-3xl border border-white/6 bg-[#141418] p-6 shadow-[0_18px_40px_rgba(0,0,0,0.28)]"
+                className="fade-up rounded-[30px] border border-white/80 bg-white/82 p-6 shadow-[0_16px_40px_rgba(18,37,38,0.08)]"
                 style={{
                   borderLeftWidth: '4px',
                   borderLeftColor: doctor.border,
                   transitionDelay: `${index * 120}ms`
                 }}
               >
-                <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#00C2FF]">
+                <p className="text-sm font-semibold uppercase tracking-[0.28em] text-[#2a8f84]">
                   {doctor.specialty}
                 </p>
-                <h3 className="mt-4 text-3xl text-white">{doctor.name}</h3>
-                <p className="mt-4 text-base leading-7 text-gray-400">{doctor.focus}</p>
+                <h3 className="mt-4 text-3xl text-[#122526]">{doctor.name}</h3>
+                <p className="mt-4 text-base leading-7 text-[#5b6d70]">{doctor.focus}</p>
               </article>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="px-5 py-20 sm:px-8 lg:px-12">
+      <section className="bg-[#C7B3A6] px-5 py-20 sm:px-8 lg:px-12">
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[minmax(0,1fr)_440px] lg:items-center">
           <div className="fade-up max-w-2xl">
-            <p className="text-sm font-semibold uppercase tracking-[0.34em] text-[#00C2FF]">
+            <p className="text-sm font-semibold uppercase tracking-[0.34em] text-[#173133]/70">
               The Assistant
             </p>
-            <h2 className="mt-4 text-[clamp(2.4rem,5vw,4.5rem)] leading-[0.98] text-white">
+            <h2 className="mt-4 text-[clamp(2.4rem,5vw,4.5rem)] leading-[0.98] text-[#14282A]">
               Meet Aria, your 24/7 coordinator.
             </h2>
-            <p className="mt-6 text-base leading-8 text-gray-400 sm:text-lg">
+            <p className="mt-6 text-base leading-8 text-[#31484a] sm:text-lg">
               Aria understands what you&apos;re saying — not just what you type. She&apos;ll match
               you with the right doctor, find available times, and confirm everything instantly.
             </p>
             <button
               type="button"
               onClick={() => navigate('/patient')}
-              className="mt-8 inline-flex min-h-11 items-center gap-2 text-base font-semibold text-[#00C2FF] transition hover:translate-x-1"
+              className="mt-8 inline-flex min-h-11 items-center gap-2 text-base font-semibold text-[#173133] transition hover:translate-x-1"
             >
               Chat with Aria <span aria-hidden="true">→</span>
             </button>
           </div>
 
           <div
-            className="fade-up rounded-[2rem] border border-white/8 bg-[#11131A] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.38)]"
+            className="fade-up rounded-[2rem] border border-white/60 bg-[#173133] p-5 shadow-[0_24px_70px_rgba(23,49,51,0.28)]"
             style={{ transitionDelay: '160ms' }}
           >
             <div className="flex items-center justify-between border-b border-white/8 pb-4">
@@ -281,7 +284,7 @@ export default function Landing() {
                 <p className="text-xs uppercase tracking-[0.24em] text-white/45">CareConnect</p>
                 <p className="mt-2 text-lg font-semibold text-white">Aria concierge</p>
               </div>
-              <div className="rounded-full border border-[#00C2FF]/40 bg-[#06131B] px-3 py-1 text-xs font-medium text-[#00C2FF]">
+              <div className="rounded-full border border-[#67D7C4]/35 bg-white/5 px-3 py-1 text-xs font-medium text-[#67D7C4]">
                 Live
               </div>
             </div>
@@ -292,8 +295,8 @@ export default function Landing() {
                   key={`${entry.role}-${entry.text}`}
                   className={`max-w-[85%] rounded-3xl px-4 py-3 text-sm leading-6 shadow-sm ${
                     entry.role === 'user'
-                      ? 'ml-auto rounded-br-lg bg-[#00C2FF] text-[#04131A]'
-                      : 'rounded-bl-lg bg-[#1A1F27] text-gray-200'
+                      ? 'ml-auto rounded-br-lg bg-[#67D7C4] text-[#0f2425]'
+                      : 'rounded-bl-lg bg-white/10 text-gray-100'
                   }`}
                 >
                   {entry.text}
@@ -304,7 +307,7 @@ export default function Landing() {
         </div>
       </section>
 
-      <footer className="border-t border-white/8 px-5 py-12 sm:px-8 lg:px-12">
+      <footer className="border-t border-white/8 bg-[#20383B] px-5 py-12 text-white sm:px-8 lg:px-12">
         <div className="mx-auto grid max-w-7xl gap-8 md:grid-cols-[1.2fr_1fr]">
           <div className="fade-up">
             <p className="text-sm font-semibold uppercase tracking-[0.34em] text-white/55">

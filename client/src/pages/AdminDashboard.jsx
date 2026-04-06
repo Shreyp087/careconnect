@@ -178,6 +178,45 @@ const getWeekEnd = (date = new Date()) => {
   return end;
 };
 
+const groupSlotsByDate = (slots = []) => {
+  const grouped = new Map();
+
+  [...slots]
+    .sort((left, right) => new Date(left.slot_datetime) - new Date(right.slot_datetime))
+    .forEach((slot) => {
+      const date = new Date(slot.slot_datetime);
+      const key = date.toISOString().slice(0, 10);
+
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          key,
+          dateLabel: date.toLocaleDateString('en-US', {
+            month: 'long',
+            day: 'numeric'
+          }),
+          dayLabel: date.toLocaleDateString('en-US', {
+            weekday: 'short'
+          }),
+          fullDateLabel: date.toLocaleDateString('en-US', {
+            weekday: 'long',
+            month: 'long',
+            day: 'numeric'
+          }),
+          slots: []
+        });
+      }
+
+      grouped.get(key).slots.push(slot);
+    });
+
+  return Array.from(grouped.values()).map((group) => ({
+    ...group,
+    availableCount: group.slots.filter(
+      (slot) => getSlotStatusLabel(slot) === 'Available'
+    ).length
+  }));
+};
+
 function CalendarIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -226,10 +265,45 @@ function PhoneIcon() {
   );
 }
 
+function ChevronDownIcon({ open = false }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className={`h-4 w-4 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
 function StatCard({ label, value }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="text-2xl font-bold text-slate-900">{value}</p>
+    <div className="rounded-2xl border border-white/80 bg-white/80 p-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)] backdrop-blur">
+      <p className="text-2xl font-bold tracking-tight text-slate-900">{value}</p>
       <p className="mt-1 text-sm text-slate-500">{label}</p>
     </div>
   );
@@ -243,6 +317,7 @@ export default function AdminDashboard() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
+  const [expandedProviderId, setExpandedProviderId] = useState('');
   const [openSlotFormProviderId, setOpenSlotFormProviderId] = useState('');
   const [slotForms, setSlotForms] = useState({});
   const [loading, setLoading] = useState(true);
@@ -308,6 +383,18 @@ export default function AdminDashboard() {
   useEffect(() => {
     refreshDashboard({ initialLoad: true });
   }, []);
+
+  useEffect(() => {
+    if (!providers.length) {
+      return;
+    }
+
+    setExpandedProviderId((current) =>
+      current && providers.some((provider) => provider.id === current)
+        ? current
+        : providers[0].id
+    );
+  }, [providers]);
 
   const setProviderSlotForm = (providerId, updates) => {
     setSlotForms((current) => ({
@@ -545,15 +632,15 @@ export default function AdminDashboard() {
     };
   }, [filteredAppointments]);
 
-  const topBarStatus = refreshing || busyActionKey
-    ? { tone: 'text-sky-600', label: 'Syncing...' }
+const topBarStatus = refreshing || busyActionKey
+    ? { tone: 'text-[#2A8F84]', label: 'Syncing...' }
     : syncState === 'saved'
-      ? { tone: 'text-emerald-600', label: 'Saved ✓' }
-      : { tone: 'text-emerald-600', label: 'Live — changes apply instantly' };
+      ? { tone: 'text-[#2A8F84]', label: 'Saved ✓' }
+      : { tone: 'text-[#2A8F84]', label: 'Live — changes apply instantly' };
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#F7F8FA] text-slate-900">
-      <header className="flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 md:px-6">
+    <div className="flex h-screen flex-col overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(103,215,196,0.16),_transparent_28%),radial-gradient(circle_at_85%_12%,_rgba(204,184,171,0.16),_transparent_24%),linear-gradient(180deg,#F7FAF6_0%,#EEF3EC_100%)] text-slate-900">
+      <header className="flex h-14 items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 backdrop-blur md:px-6">
         <div>
           <p className="text-sm font-bold tracking-[0.16em] text-slate-900">GREENFIELD</p>
           <p className="text-[11px] text-slate-400">Admin Console</p>
@@ -576,16 +663,16 @@ export default function AdminDashboard() {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <aside className="hidden w-[200px] shrink-0 border-r border-slate-200 bg-[#FAFAFA] md:block">
+        <aside className="hidden w-[208px] shrink-0 border-r border-slate-200/80 bg-white/55 backdrop-blur md:block">
           <div className="p-4">
             <nav className="space-y-1">
               <button
                 type="button"
                 onClick={() => setActiveTab('availability')}
-                className={`flex w-full items-center justify-between rounded-r-xl border-l-2 px-3 py-3 text-sm font-medium transition ${
+                className={`flex w-full items-center justify-between rounded-2xl border border-transparent px-3 py-3 text-sm font-medium transition ${
                   activeTab === 'availability'
-                    ? 'border-sky-600 bg-sky-50 text-sky-600'
-                    : 'border-transparent text-slate-600 hover:bg-white hover:text-slate-900'
+                    ? 'border-[#B7EADF] bg-[linear-gradient(135deg,rgba(103,215,196,0.16),rgba(255,255,255,0.9))] text-[#1F6E68] shadow-sm'
+                    : 'text-slate-600 hover:bg-white hover:text-slate-900'
                 }`}
               >
                 <span className="flex items-center gap-2">
@@ -599,10 +686,10 @@ export default function AdminDashboard() {
               <button
                 type="button"
                 onClick={() => setActiveTab('appointments')}
-                className={`flex w-full items-center justify-between rounded-r-xl border-l-2 px-3 py-3 text-sm font-medium transition ${
+                className={`flex w-full items-center justify-between rounded-2xl border border-transparent px-3 py-3 text-sm font-medium transition ${
                   activeTab === 'appointments'
-                    ? 'border-sky-600 bg-sky-50 text-sky-600'
-                    : 'border-transparent text-slate-600 hover:bg-white hover:text-slate-900'
+                    ? 'border-[#B7EADF] bg-[linear-gradient(135deg,rgba(103,215,196,0.16),rgba(255,255,255,0.9))] text-[#1F6E68] shadow-sm'
+                    : 'text-slate-600 hover:bg-white hover:text-slate-900'
                 }`}
               >
                 <span className="flex items-center gap-2">
@@ -619,7 +706,7 @@ export default function AdminDashboard() {
 
         <main className="min-w-0 flex-1 overflow-y-auto">
           <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-6">
-            <div className="flex flex-col gap-3 border-b border-slate-200 pb-5 md:flex-row md:items-end md:justify-between">
+            <div className="flex flex-col gap-3 border-b border-slate-200/80 pb-5 md:flex-row md:items-end md:justify-between">
               <div>
                 <h2 className="text-2xl font-semibold text-slate-900">
                   {activeTab === 'availability' ? 'Provider Availability' : 'Appointments'}
@@ -632,7 +719,7 @@ export default function AdminDashboard() {
               <button
                 type="button"
                 onClick={() => refreshDashboard()}
-                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white/90 px-4 text-sm font-medium text-slate-700 transition hover:border-sky-200 hover:bg-white disabled:opacity-60"
                 disabled={refreshing}
               >
                 <RefreshIcon />
@@ -641,13 +728,13 @@ export default function AdminDashboard() {
             </div>
 
             {error ? (
-              <div className="mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                 {error}
               </div>
             ) : null}
 
             {loading ? (
-              <div className="mt-6 rounded-xl border border-slate-200 bg-white px-6 py-16 text-center text-sm text-slate-500 shadow-sm">
+              <div className="mt-6 rounded-[28px] border border-white/80 bg-white/90 px-6 py-16 text-center text-sm text-slate-500 shadow-[0_20px_55px_rgba(15,23,42,0.08)]">
                 Loading admin data...
               </div>
             ) : null}
@@ -664,45 +751,130 @@ export default function AdminDashboard() {
                 <div className="mt-6 space-y-5">
                   {providers.map((provider) => {
                     const formState = slotForms[provider.id] || emptySlotForm;
-                    const availableSlots = (provider.slots || []).filter(
+                    const providerSlots = provider.slots || [];
+                    const slotGroups = groupSlotsByDate(providerSlots);
+                    const previewDays = slotGroups.slice(0, 5);
+                    const availableSlots = providerSlots.filter(
                       (slot) => getSlotStatusLabel(slot) === 'Available'
                     ).length;
+                    const bookedSlots = providerSlots.filter(
+                      (slot) => getSlotStatusLabel(slot) === 'Booked'
+                    ).length;
+                    const nextAvailableSlot = [...providerSlots]
+                      .sort(
+                        (left, right) =>
+                          new Date(left.slot_datetime) - new Date(right.slot_datetime)
+                      )
+                      .find((slot) => getSlotStatusLabel(slot) === 'Available');
+                    const nextAvailableLabel = nextAvailableSlot
+                      ? `${formatDay(nextAvailableSlot.slot_datetime)}, ${formatTime(nextAvailableSlot.slot_datetime)}`
+                      : 'No open times';
                     const isOpen = openSlotFormProviderId === provider.id;
+                    const isExpanded = expandedProviderId === provider.id;
 
                     return (
                       <section
                         key={provider.id}
-                        className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
+                        className="overflow-hidden rounded-[28px] border border-white/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(248,250,252,0.98))] shadow-[0_20px_55px_rgba(15,23,42,0.08)]"
                       >
-                        <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-                          <div className="flex items-center gap-4">
-                            <div className={`flex h-12 w-12 items-center justify-center rounded-full text-sm font-semibold ${getProviderAccent(provider.name)}`}>
-                              {getInitials(provider.name)}
+                        <div className="border-b border-slate-200/70 bg-[radial-gradient(circle_at_top_right,rgba(103,215,196,0.14),transparent_28%)] px-5 py-5">
+                          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                            <div className="flex items-start gap-4">
+                              <div className={`flex h-12 w-12 items-center justify-center rounded-full text-sm font-semibold shadow-inner ${getProviderAccent(provider.name)}`}>
+                                {getInitials(provider.name)}
+                              </div>
+                              <div>
+                                <div className="flex flex-wrap items-center gap-3">
+                                  <h3 className="text-lg font-semibold tracking-tight text-slate-900">
+                                    {provider.name}
+                                  </h3>
+                                  <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getAvailabilityBadgeClass(availableSlots)}`}>
+                                    {availableSlots} available
+                                  </span>
+                                </div>
+                                <p className="mt-1 text-sm text-slate-500">{provider.specialty}</p>
+                              </div>
                             </div>
-                            <div>
-                              <h3 className="text-lg font-semibold text-slate-900">{provider.name}</h3>
-                              <p className="text-sm text-slate-500">{provider.specialty}</p>
+
+                            <div className="flex flex-wrap items-center gap-2 self-start">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setOpenSlotFormProviderId((current) =>
+                                    current === provider.id ? '' : provider.id
+                                  )
+                                }
+                                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-[linear-gradient(135deg,#67D7C4_0%,#2DCAB3_100%)] px-4 text-sm font-semibold text-[#0F2425] transition hover:brightness-105"
+                              >
+                                <PlusIcon />
+                                Add slot
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedProviderId((current) =>
+                                    current === provider.id ? '' : provider.id
+                                  )
+                                }
+                                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full border border-slate-200 bg-white/85 px-4 text-sm font-medium text-slate-700 transition hover:border-[#B7EADF] hover:text-[#1F6E68]"
+                              >
+                                {isExpanded ? 'Collapse' : 'View schedule'}
+                                <ChevronDownIcon open={isExpanded} />
+                              </button>
                             </div>
-                            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getAvailabilityBadgeClass(availableSlots)}`}>
-                              {availableSlots} available slots
-                            </span>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setOpenSlotFormProviderId((current) =>
-                                current === provider.id ? '' : provider.id
-                              )
-                            }
-                            className="inline-flex min-h-10 items-center justify-center rounded-lg bg-sky-500 px-4 text-sm font-semibold text-white transition hover:bg-sky-600"
-                          >
-                            Add slot
-                          </button>
+                          <div className="mt-4 grid gap-3 md:grid-cols-3">
+                            <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm">
+                              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                                Next open
+                              </p>
+                              <p className="mt-2 text-sm font-semibold text-slate-900">
+                                {nextAvailableLabel}
+                              </p>
+                            </div>
+                            <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm">
+                              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                                Booked slots
+                              </p>
+                              <p className="mt-2 text-sm font-semibold text-slate-900">{bookedSlots}</p>
+                            </div>
+                            <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm">
+                              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                                Visible dates
+                              </p>
+                              <p className="mt-2 text-sm font-semibold text-slate-900">{slotGroups.length}</p>
+                            </div>
+                          </div>
+
+                          {previewDays.length ? (
+                            <div className="mt-4 flex gap-3 overflow-x-auto pb-1">
+                              {previewDays.map((group) => (
+                                <div
+                                  key={`${provider.id}-${group.key}-preview`}
+                                  className="min-w-[140px] rounded-2xl border border-white/70 bg-slate-950/[0.025] px-4 py-3"
+                                >
+                                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                                    {group.dayLabel}
+                                  </p>
+                                  <p className="mt-1 text-sm font-semibold text-slate-900">
+                                    {group.dateLabel}
+                                  </p>
+                                  <p className="mt-2 text-xs text-slate-500">
+                                    {group.availableCount} open · {group.slots.length} total
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="mt-4 rounded-2xl border border-dashed border-slate-200 bg-white/70 px-4 py-4 text-sm text-slate-500">
+                              No future slots yet. Add a time to get this doctor on the board.
+                            </div>
+                          )}
                         </div>
 
                         <div
-                          className={`overflow-hidden border-b border-slate-200 bg-slate-50 px-5 transition-all duration-300 ${
+                          className={`overflow-hidden border-b border-slate-200/70 bg-slate-50/70 px-5 transition-all duration-300 ${
                             isOpen ? 'max-h-48 py-4' : 'max-h-0 py-0'
                           }`}
                         >
@@ -713,14 +885,14 @@ export default function AdminDashboard() {
                               onChange={(event) =>
                                 setProviderSlotForm(provider.id, { date: event.target.value })
                               }
-                              className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#67D7C4] focus:ring-4 focus:ring-[#D8F5EE]"
                             />
                             <select
                               value={formState.time}
                               onChange={(event) =>
                                 setProviderSlotForm(provider.id, { time: event.target.value })
                               }
-                              className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#67D7C4] focus:ring-4 focus:ring-[#D8F5EE]"
                             >
                               {SLOT_TIME_OPTIONS.map((option) => (
                                 <option key={option.value} value={option.value}>
@@ -731,7 +903,7 @@ export default function AdminDashboard() {
                             <button
                               type="button"
                               onClick={() => handleAddSlot(provider.id)}
-                              className="inline-flex min-h-10 items-center justify-center rounded-lg bg-sky-500 px-4 text-sm font-semibold text-white transition hover:bg-sky-600 disabled:opacity-60"
+                              className="inline-flex min-h-10 items-center justify-center rounded-full bg-[linear-gradient(135deg,#67D7C4_0%,#2DCAB3_100%)] px-4 text-sm font-semibold text-[#0F2425] transition hover:brightness-105 disabled:opacity-60"
                               disabled={busyActionKey === `add-${provider.id}`}
                             >
                               {busyActionKey === `add-${provider.id}` ? 'Adding...' : 'Add'}
@@ -746,87 +918,111 @@ export default function AdminDashboard() {
                           </div>
                         </div>
 
-                        <div className="overflow-x-auto">
-                          <table className="min-w-full">
-                            <thead className="border-b border-slate-200 bg-slate-50">
-                              <tr className="text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                                <th className="px-5 py-3">Date</th>
-                                <th className="px-5 py-3">Day</th>
-                                <th className="px-5 py-3">Time</th>
-                                <th className="px-5 py-3">Status</th>
-                                <th className="px-5 py-3 text-right">Action</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {provider.slots.length ? (
-                                provider.slots.map((slot) => {
-                                  const slotLabel = getSlotStatusLabel(slot);
-                                  const rowTone =
-                                    slotLabel === 'Available' ? 'bg-white' : 'bg-slate-50';
+                        {isExpanded ? (
+                          <div className="px-5 py-5">
+                            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#2A8F84]">
+                                  Schedule board
+                                </p>
+                                <p className="mt-1 text-sm text-slate-500">
+                                  Scan dates horizontally and manage slots in-place.
+                                </p>
+                              </div>
+                              <p className="text-xs uppercase tracking-[0.16em] text-slate-400">
+                                {providerSlots.length} total slots
+                              </p>
+                            </div>
 
-                                  return (
-                                    <tr
-                                      key={slot.id}
-                                      className={`${rowTone} border-b border-slate-100 transition hover:bg-slate-50`}
+                            {slotGroups.length ? (
+                              <div className="overflow-x-auto pb-1">
+                                <div className="flex min-w-max gap-4">
+                                  {slotGroups.map((group) => (
+                                    <div
+                                      key={`${provider.id}-${group.key}`}
+                                      className="w-[270px] rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,#FFFFFF_0%,#F8FAFC_100%)] p-4 shadow-sm"
                                     >
-                                      <td className="px-5 py-4 text-sm text-slate-700">
-                                        {formatCalendarDate(slot.slot_datetime)}
-                                      </td>
-                                      <td className="px-5 py-4 text-sm text-slate-500">
-                                        {formatDay(slot.slot_datetime)}
-                                      </td>
-                                      <td className="px-5 py-4 text-sm text-slate-700">
-                                        {formatTime(slot.slot_datetime)}
-                                      </td>
-                                      <td className="px-5 py-4">
-                                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getSlotStatusBadgeClass(slot)}`}>
-                                          {slotLabel}
-                                        </span>
-                                      </td>
-                                      <td className="px-5 py-4 text-right">
-                                        {slotLabel === 'Available' ? (
-                                          <button
-                                            type="button"
-                                            onClick={() => handleBlockSlot(slot.id)}
-                                            className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60"
-                                            disabled={busyActionKey === `block-${slot.id}`}
-                                          >
-                                            {busyActionKey === `block-${slot.id}` ? 'Blocking...' : 'Block'}
-                                          </button>
-                                        ) : (
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              handleCancelAppointment(
-                                                slot.appointment_id,
-                                                `the booking at ${formatTime(slot.slot_datetime)}`
-                                              )
-                                            }
-                                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-60"
-                                            disabled={
-                                              !slot.appointment_id ||
-                                              busyActionKey === `cancel-${slot.appointment_id}`
-                                            }
-                                          >
-                                            {busyActionKey === `cancel-${slot.appointment_id}`
-                                              ? 'Cancelling...'
-                                              : 'Cancel'}
-                                          </button>
-                                        )}
-                                      </td>
-                                    </tr>
-                                  );
-                                })
-                              ) : (
-                                <tr>
-                                  <td colSpan="5" className="px-5 py-10 text-center text-sm text-slate-500">
-                                    No visible available or booked slots in the next 14 days.
-                                  </td>
-                                </tr>
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
+                                      <div className="border-b border-slate-200/80 pb-3">
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#2A8F84]">
+                                          {group.dayLabel}
+                                        </p>
+                                        <p className="mt-1 text-base font-semibold text-slate-900">
+                                          {group.dateLabel}
+                                        </p>
+                                        <p className="mt-1 text-xs text-slate-500">
+                                          {group.availableCount} open · {group.slots.length} total
+                                        </p>
+                                      </div>
+
+                                      <div className="mt-4 space-y-3">
+                                        {group.slots.map((slot) => {
+                                          const slotLabel = getSlotStatusLabel(slot);
+
+                                          return (
+                                            <div
+                                              key={slot.id}
+                                              className={`rounded-2xl border px-3.5 py-3 ${
+                                                slotLabel === 'Available'
+                                                  ? 'border-emerald-200 bg-emerald-50/60'
+                                                  : slotLabel === 'Cancelled'
+                                                    ? 'border-rose-200 bg-rose-50/60'
+                                                    : 'border-slate-200 bg-slate-50'
+                                              }`}
+                                            >
+                                              <div className="flex items-start justify-between gap-3">
+                                                <div>
+                                                  <p className="text-sm font-semibold text-slate-900">
+                                                    {formatTime(slot.slot_datetime)}
+                                                  </p>
+                                                  <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${getSlotStatusBadgeClass(slot)}`}>
+                                                    {slotLabel}
+                                                  </span>
+                                                </div>
+                                                {slotLabel === 'Available' ? (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => handleBlockSlot(slot.id)}
+                                                    className="rounded-full border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-60"
+                                                    disabled={busyActionKey === `block-${slot.id}`}
+                                                  >
+                                                    {busyActionKey === `block-${slot.id}` ? 'Blocking...' : 'Block'}
+                                                  </button>
+                                                ) : (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                      handleCancelAppointment(
+                                                        slot.appointment_id,
+                                                        `the booking on ${group.fullDateLabel} at ${formatTime(slot.slot_datetime)}`
+                                                      )
+                                                    }
+                                                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-60"
+                                                    disabled={
+                                                      !slot.appointment_id ||
+                                                      busyActionKey === `cancel-${slot.appointment_id}`
+                                                    }
+                                                  >
+                                                    {busyActionKey === `cancel-${slot.appointment_id}`
+                                                      ? 'Cancelling...'
+                                                      : 'Cancel'}
+                                                  </button>
+                                                )}
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-5 py-10 text-center text-sm text-slate-500">
+                                No visible available or booked slots in the next 14 days.
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
                       </section>
                     );
                   })}
@@ -843,12 +1039,12 @@ export default function AdminDashboard() {
                   <StatCard label="Next 7 days" value={appointmentStats.nextSevenDays} />
                 </div>
 
-                <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="mt-6 rounded-[28px] border border-white/80 bg-white/90 p-4 shadow-[0_20px_55px_rgba(15,23,42,0.08)]">
                   <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_1fr_1fr_auto]">
                     <select
                       value={selectedDoctor}
                       onChange={(event) => setSelectedDoctor(event.target.value)}
-                      className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#67D7C4] focus:ring-4 focus:ring-[#D8F5EE]"
                     >
                       <option value="">All doctors</option>
                       {providers.map((provider) => (
@@ -862,20 +1058,20 @@ export default function AdminDashboard() {
                       type="date"
                       value={startDate}
                       onChange={(event) => setStartDate(event.target.value)}
-                      className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#67D7C4] focus:ring-4 focus:ring-[#D8F5EE]"
                     />
 
                     <input
                       type="date"
                       value={endDate}
                       onChange={(event) => setEndDate(event.target.value)}
-                      className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#67D7C4] focus:ring-4 focus:ring-[#D8F5EE]"
                     />
 
                     <select
                       value={selectedStatus}
                       onChange={(event) => setSelectedStatus(event.target.value)}
-                      className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none transition focus:border-[#67D7C4] focus:ring-4 focus:ring-[#D8F5EE]"
                     >
                       <option value="">All statuses</option>
                       <option value="confirmed">Confirmed</option>
@@ -893,7 +1089,7 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                <div className="mt-5 overflow-hidden rounded-[28px] border border-white/80 bg-white/90 shadow-[0_20px_55px_rgba(15,23,42,0.08)]">
                   <div className="overflow-x-auto">
                     <table className="min-w-full">
                       <thead className="border-b border-slate-200 bg-slate-50">
@@ -1005,13 +1201,13 @@ export default function AdminDashboard() {
         </main>
       </div>
 
-      <nav className="border-t border-slate-200 bg-white px-3 py-2 md:hidden">
+      <nav className="border-t border-slate-200/80 bg-white/90 px-3 py-2 backdrop-blur md:hidden">
         <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
             onClick={() => setActiveTab('availability')}
-            className={`rounded-lg px-3 py-2 text-sm font-medium ${
-              activeTab === 'availability' ? 'bg-sky-50 text-sky-600' : 'text-slate-600'
+            className={`rounded-2xl px-3 py-2 text-sm font-medium ${
+              activeTab === 'availability' ? 'bg-[#ECFAF6] text-[#1F6E68]' : 'text-slate-600'
             }`}
           >
             Availability
@@ -1019,8 +1215,8 @@ export default function AdminDashboard() {
           <button
             type="button"
             onClick={() => setActiveTab('appointments')}
-            className={`rounded-lg px-3 py-2 text-sm font-medium ${
-              activeTab === 'appointments' ? 'bg-sky-50 text-sky-600' : 'text-slate-600'
+            className={`rounded-2xl px-3 py-2 text-sm font-medium ${
+              activeTab === 'appointments' ? 'bg-[#ECFAF6] text-[#1F6E68]' : 'text-slate-600'
             }`}
           >
             Appointments

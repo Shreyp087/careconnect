@@ -592,6 +592,89 @@ const resolveBookingSelection = ({
   return null;
 };
 
+const normalizeProviderReference = (value = '') =>
+  String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/^dr\.?\s*/i, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const slugifyProviderName = (value = '') =>
+  String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/^dr\.?\s*/i, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+const resolveProviderId = async (providerReference = '') => {
+  if (!providerReference) {
+    return null;
+  }
+
+  if (looksLikeUuid(providerReference)) {
+    return providerReference;
+  }
+
+  const normalizedReference = normalizeProviderReference(providerReference);
+  const slugReference = slugifyProviderName(providerReference);
+  const { rows } = await query(
+    `
+      SELECT id, name
+      FROM providers
+    `
+  );
+
+  const matchedProvider = rows.find((provider) => {
+    const normalizedName = normalizeProviderReference(provider.name);
+    const slugName = slugifyProviderName(provider.name);
+
+    return (
+      normalizedName === normalizedReference ||
+      slugName === slugReference ||
+      normalizedName.includes(normalizedReference) ||
+      normalizedReference.includes(normalizedName)
+    );
+  });
+
+  return matchedProvider?.id || null;
+};
+
+const resolveSlotFromProviderOptions = async ({ providerId, optionNumber }) => {
+  if (!providerId || !optionNumber || optionNumber < 1) {
+    return null;
+  }
+
+  const { rows } = await query(
+    `
+      SELECT id, provider_id, slot_datetime
+      FROM provider_slots
+      WHERE provider_id = $1
+        AND is_available = TRUE
+        AND slot_datetime > NOW()
+        AND slot_datetime <= NOW() + INTERVAL '45 days'
+      ORDER BY slot_datetime
+      LIMIT 6
+    `,
+    [providerId]
+  );
+
+  const selectedSlot = rows[optionNumber - 1];
+
+  if (!selectedSlot) {
+    return null;
+  }
+
+  return {
+    slot_id: selectedSlot.id,
+    provider_id: selectedSlot.provider_id,
+    slot_datetime: selectedSlot.slot_datetime,
+    option_number: optionNumber
+  };
+};
+
 const buildFallbackReply = async (sessionId, userMessage) => {
   const normalized = userMessage.toLowerCase();
   const dobCandidate =
@@ -951,6 +1034,7 @@ export const bookWaitlist = async ({
   }
 
   const state = await getSessionState({ session_id });
+  const resolvedProviderId = (await resolveProviderId(provider_id)) || provider_id;
 
   const { rows: providerRows } = await query(
     `
@@ -958,7 +1042,7 @@ export const bookWaitlist = async ({
       FROM providers
       WHERE id = $1
     `,
-    [provider_id]
+    [resolvedProviderId]
   );
 
   if (!providerRows.length) {
@@ -987,7 +1071,7 @@ export const bookWaitlist = async ({
     `,
     [
       session_id,
-      provider_id,
+      resolvedProviderId,
       resolvedPatientName || null,
       resolvedPatientEmail,
       resolvedPatientPhone,
@@ -1023,7 +1107,7 @@ export const bookWaitlist = async ({
   return {
     waitlist_id: waitlistEntry.id,
     session_id,
-    provider_id,
+    provider_id: resolvedProviderId,
     provider_name: provider.name,
     specialty: provider.specialty,
     patient_name: resolvedPatientName,
@@ -1067,22 +1151,40 @@ export const bookAppointment = async ({
     provider_id,
     option_number
   });
+  const resolvedProviderIdFromReference = await resolveProviderId(provider_id);
   const resolvedSlotId =
     resolvedSelection?.slot_id ||
     (slot_id && looksLikeUuid(slot_id) ? slot_id : '');
   const resolvedProviderId =
     resolvedSelection?.provider_id ||
+    resolvedProviderIdFromReference ||
     (provider_id && looksLikeUuid(provider_id) ? provider_id : '');
+  const numericOptionNumber =
+    option_number ||
+    (/^\d+$/.test(String(slot_id || '').trim())
+      ? Number.parseInt(String(slot_id).trim(), 10)
+      : null);
+  const directProviderOptionSelection =
+    !resolvedSelection && resolvedProviderId && numericOptionNumber
+      ? await resolveSlotFromProviderOptions({
+          providerId: resolvedProviderId,
+          optionNumber: numericOptionNumber
+        })
+      : null;
+  const finalResolvedSlotId =
+    directProviderOptionSelection?.slot_id || resolvedSlotId;
+  const finalResolvedProviderId =
+    directProviderOptionSelection?.provider_id || resolvedProviderId;
 
   const missing = [];
 
   if (!session_id) {
     missing.push('session_id');
   }
-  if (!resolvedSlotId) {
+  if (!finalResolvedSlotId) {
     missing.push('slot_id');
   }
-  if (!resolvedProviderId) {
+  if (!finalResolvedProviderId) {
     missing.push('provider_id');
   }
   if (!patient_first_name) {
@@ -1123,7 +1225,7 @@ export const bookAppointment = async ({
       WHERE provider_slots.id = $1
         AND provider_slots.is_available = TRUE
     `,
-    [resolvedSlotId]
+    [finalResolvedSlotId]
   );
 
   if (!initialSlotCheck.rows.length) {
@@ -1140,7 +1242,7 @@ export const bookAppointment = async ({
           ON providers.id = provider_slots.provider_id
       WHERE provider_slots.id = $1
       `,
-      [resolvedSlotId || slot_id]
+      [finalResolvedSlotId || resolvedSlotId || slot_id]
     );
 
     if (anySlotResult.rows.length && !anySlotResult.rows[0].is_available) {
@@ -1154,7 +1256,7 @@ export const bookAppointment = async ({
     return {
       error: 'slot_not_found',
       message: 'Could not find that slot. Let me show you available times again.',
-      slot_id: resolvedSlotId || slot_id,
+      slot_id: finalResolvedSlotId || resolvedSlotId || slot_id,
       option_number: option_number || null
     };
   }
@@ -1166,9 +1268,9 @@ export const bookAppointment = async ({
   const normalizedSmsOptIn =
     sms_opted_in === true || sms_opted_in === 'true';
 
-  if (resolvedProviderId && resolvedProviderId !== selectedProviderId) {
+  if (finalResolvedProviderId && finalResolvedProviderId !== selectedProviderId) {
     logger.warn(
-      `[BOOK] Provider mismatch for slot ${resolvedSlotId}: received ${resolvedProviderId}, using ${selectedProviderId}.`
+      `[BOOK] Provider mismatch for slot ${finalResolvedSlotId}: received ${finalResolvedProviderId}, using ${selectedProviderId}.`
     );
   }
 
@@ -1241,7 +1343,7 @@ export const bookAppointment = async ({
         WHERE provider_slots.id = $1
         FOR UPDATE
       `,
-      [resolvedSlotId]
+      [finalResolvedSlotId]
     );
 
     if (!lockedSlotResult.rows.length) {
@@ -1249,7 +1351,7 @@ export const bookAppointment = async ({
       return {
         error: 'slot_not_found',
         message: 'Could not find that slot. Let me show you available times again.',
-        slot_id: resolvedSlotId,
+        slot_id: finalResolvedSlotId,
         option_number: option_number || null
       };
     }
@@ -1261,7 +1363,7 @@ export const bookAppointment = async ({
       return {
         error: 'slot_taken',
         message: 'That slot was just taken. Let me find you another available time.',
-        slot_id: resolvedSlotId,
+        slot_id: finalResolvedSlotId,
         option_number: option_number || null
       };
     }
@@ -1272,7 +1374,7 @@ export const bookAppointment = async ({
         SET is_available = FALSE
         WHERE id = $1
       `,
-      [resolvedSlotId]
+      [finalResolvedSlotId]
     );
 
     const appointmentResult = await client.query(
@@ -1296,7 +1398,7 @@ export const bookAppointment = async ({
       [
         session_id,
         lockedSlot.provider_id,
-        resolvedSlotId,
+        finalResolvedSlotId,
         patient_first_name,
         patient_last_name,
         patient_dob || null,
@@ -1354,7 +1456,7 @@ export const bookAppointment = async ({
       success: true,
       appointment_id: appointment.id,
       session_id,
-      slot_id: resolvedSlotId,
+      slot_id: finalResolvedSlotId,
       option_number: option_number || resolvedSelection?.option_number || null,
       provider_id: lockedSlot.provider_id,
       provider_name: lockedSlot.provider_name,

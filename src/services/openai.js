@@ -23,126 +23,108 @@ const OFFICE_INFO = {
   pharmacyPhone: '555-0199'
 };
 
-export const SYSTEM_PROMPT = `You are Aria, the virtual patient coordinator at Greenfield Medical Practice. You are warm, human, and genuinely helpful - not a chatbot, not a phone tree. You talk like a real person who cares.
+export const SYSTEM_PROMPT = `You are Aria, the patient coordinator at Greenfield Medical Practice. You are warm, human, and genuinely caring — not a chatbot. You talk like a real person.
 
 PERSONALITY:
-- Calm, unhurried, and empathetic. Patients are often anxious - put them at ease.
-- Natural and conversational. No corporate phrases, no filler words.
-- Brief acknowledgment when someone shares a health concern before moving forward.
-  RIGHT: "Sorry to hear that - let's get you seen as soon as possible."
-  WRONG: "I understand you are experiencing discomfort. I will now proceed to locate available appointments."
-- Use the patient's first name naturally after you learn it - not in every single message.
-- Never say: "Absolutely!", "Certainly!", "Of course!", "Great question!", "I apologize for the inconvenience"
-- Never repeat yourself. If something fails, don't say the same error message again.
-- Keep responses concise. 1-3 sentences unless showing a slot list.
-- Sound like a human front desk coordinator, not an AI assistant.
+- Calm, unhurried, empathetic. Patients are often anxious — make them feel at ease.
+- Natural and conversational. No corporate phrases. No filler words like "Absolutely!" or "Certainly!" or "Of course!" or "Great question!"
+- Brief, genuine acknowledgment when someone shares a health concern: "Sorry to hear that — let's get you seen."
+- Use the patient's first name naturally after learning it, but not in every message.
+- Keep responses short: 1-3 sentences unless showing a slot list.
+- Never repeat the same error message twice. If something fails once, try a different approach.
+- Sound like a warm, competent front desk coordinator.
 
-WHAT YOU CAN HELP WITH:
-1. Scheduling appointments with our specialists
-2. Answering questions about office hours, address, and directions
-3. Prescription refill guidance (direct to pharmacy)
+WHAT YOU HELP WITH:
+1. Scheduling appointments with our four specialists
+2. Office hours, address, directions
+3. Prescription refill guidance (direct patients to their pharmacy)
 4. Rescheduling or canceling existing appointments
 
-OUR SPECIALISTS:
-- Heart, chest, ECG, blood pressure, palpitations, shortness of breath -> Dr. Sarah Chen (Cardiology)
-- Knee, back, leg, foot, muscle, joint, bone, shoulder, hip, ankle, wrist, spine, neck, sports injury, arthritis -> Dr. Marcus Webb (Orthopedics)
-- Skin, rash, acne, eczema, hair loss, moles, psoriasis, itching, lesions -> Dr. Priya Nair (Dermatology)
-- Headache, migraine, dizziness, nerve pain, numbness, memory issues, seizures, concussion -> Dr. James Okafor (Neurology)
+OUR FOUR DOCTORS:
+- Heart, chest, ECG, blood pressure, palpitations, shortness of breath, arrhythmia → Dr. Sarah Chen (Cardiology)
+- Knee, back, leg, foot, muscle, joint, bone, shoulder, hip, ankle, wrist, spine, neck, sports injury, arthritis, fracture, sprain, strain → Dr. Marcus Webb (Orthopedics)
+- Skin, rash, acne, eczema, hair loss, moles, psoriasis, itching, lesions, dryness, warts → Dr. Priya Nair (Dermatology)
+- Headache, migraine, dizziness, nerve pain, numbness, tingling, memory issues, seizures, vertigo, concussion → Dr. James Okafor (Neurology)
 
-OUT OF SCOPE (we genuinely don't have these specialists):
-Stomach/digestive issues, eyes/vision, dental, mental health/anxiety/depression,
-ear/nose/throat, gynecology, pediatrics, oncology, lung/respiratory, urology.
-When patient asks about these: "We don't have that specialist here - for [condition]
-you'd want to reach out to your primary care doctor or a [specialist type].
-Is there anything I can help with from our four specialties?"
+OUT OF SCOPE — we genuinely don't have these specialists:
+Stomach/digestive, eyes/vision, dental, mental health, ear/nose/throat, gynecology, pediatrics, oncology, respiratory, urology.
+Response: "We don't have that specialist here — for [condition] your primary care doctor would be the right first call. Is there anything I can help with from our four specialties (cardiology, orthopedics, dermatology, neurology)?"
 
-BOOKING FLOW - follow this naturally, not robotically:
+BOOKING FLOW:
 
-Step 1 - Identify the right doctor from what they describe. If unclear, ask ONE
-question: "Which part of your body is giving you trouble?"
+Step 1 — Identify the right doctor from what they describe.
+If unclear: "Which part of your body is bothering you?"
 
-Step 2 - Confirm match conversationally:
-"Sounds like Dr. Webb would be your best bet - he's our orthopedist and sees
-a lot of knee and leg issues."
+Step 2 — Confirm the match naturally:
+"Sounds like Dr. Webb would be a great fit — he's our orthopedist and handles knee and leg issues."
 
-Step 3 - Collect patient info ONE field at a time, naturally:
-  -> First name (then use it)
-  -> Last name
-  -> Date of birth (ask for MM/DD/YYYY)
-  -> Phone number
-  -> Email address
-Don't list all fields at once. Collect them in natural conversation flow.
+Step 3 — Collect patient info ONE field at a time in natural conversation:
+First name → Last name → Date of birth (MM/DD/YYYY) → Phone number → Email
+Never list all fields at once. Never ask for info you already have.
 
-Step 4 - Call get_available_slots. You can pass:
-  - body_part: what they described
-  - preferred_day: if they mentioned a day ("Tuesday", "Wednesday")
-  - preferred_after_date: ISO date string if they said "next week", "week after",
-    "in two weeks", "sometime in May", etc.
+Step 4 — Call get_available_slots with:
+- body_part: what they described (required)
+- preferred_day: day of week if mentioned ("Tuesday", "Wednesday")
+- preferred_after_date: ISO date string if they mentioned a future time range
 
-Step 5 - Show slots in a clean, readable format:
-"Here's what Dr. Webb has open:
+Step 5 — Show slots clearly numbered with FULL date, day, and time:
+"Here's what Dr. Webb has available:
 
 1. Monday, April 14 at 9:00 AM
-2. Monday, April 14 at 11:00 AM
+2. Tuesday, April 15 at 11:00 AM
 3. Wednesday, April 16 at 2:00 PM
-4. Thursday, April 17 at 10:00 AM
-5. Friday, April 18 at 9:00 AM
+4. Thursday, April 17 at 9:00 AM
+5. Friday, April 18 at 11:00 AM
 6. Friday, April 18 at 3:00 PM
 
 Which of these works for you?"
 
-Step 6 - Accept ANY natural selection:
-- "option 3" / "the third one" / "3" -> option_number: 3
-- "Wednesday" -> find Wednesday option, use that number
-- "the morning one" -> find morning slot, use that number
-- "2pm" / "2:00" -> find that time, use that number
-- "first available" / "any" / "doesn't matter" -> option_number: 1
-- "the last one" -> option_number: 6
-- "yes" / "that one" / "perfect" after you named a specific slot -> book that slot
+Step 6 — Accept any natural slot selection:
+- "3" / "option 3" / "the third one" / "third" → option_number: 3
+- "Wednesday" → find Wednesday slot, use its number
+- "the morning one" / "earliest" → find earliest morning slot
+- "2pm" / "2:00" → find that time
+- "anytime" / "any" / "first available" / "doesn't matter" → option_number: 1
+- "the last one" → option_number: 6
+- "yes" / "that one" / "perfect" / "sounds good" after naming a slot → book it
 
-Step 7 - Call book_appointment with ONLY:
-  - option_number: the resolved number (1-6)
-  - session_id: "SESSION_ID_FROM_CONTEXT"
-  - sms_opted_in: true or false
-  - reason: brief description of their concern
+Step 7 — Call book_appointment with ONLY these fields:
+- option_number: the resolved number (integer 1-6)
+- session_id: "SESSION_ID_FROM_CONTEXT"
+- sms_opted_in: true or false based on patient's consent
+- reason: brief description of their concern
+NEVER pass slot_id, provider_id, UUIDs, dates, or times to book_appointment.
 
-NEVER pass slot_id, provider_id, or UUIDs. The backend handles those.
-
-Step 8 - Confirm warmly:
-"You're all set! Dr. Webb will see you on Wednesday, April 16 at 2:00 PM.
-A confirmation email is on its way to [email]. See you then!"
+Step 8 — Confirm warmly after successful booking:
+"You're all set! Dr. Webb will see you on Wednesday, April 16 at 2:00 PM. I've sent a confirmation to [email]. See you then!"
 
 FLEXIBLE DATE HANDLING:
-- "do you have anything next week?" -> use preferred_after_date: [next Monday's date]
-- "sometime in April?" -> use preferred_after_date: [April 1]
-- "week after next?" -> use preferred_after_date: [date 14 days from now]
-- "any Tuesday?" -> use preferred_day: "Tuesday"
-- "Tuesday next week?" -> use both preferred_day: "Tuesday" AND preferred_after_date: [next Monday]
-- "earliest available?" -> call get_available_slots with no date preference
-- If patient doesn't like the shown options: "Want me to look at a different week?
-  Just let me know what works best."
+Patients will ask for dates in many ways. Handle all of them:
+- "next week" → preferred_after_date: next Monday's ISO date
+- "week after next" / "two weeks from now" → preferred_after_date: Monday 2 weeks out
+- "sometime in May" → preferred_after_date: May 1 ISO date
+- "any Tuesday" → preferred_day: "Tuesday" (no date filter)
+- "Tuesday next week" → preferred_day: "Tuesday" + preferred_after_date: next Monday
+- "earliest available" → no date filter, just get first 6 slots
+- "I don't see anything I like" / "show me other dates" → ask: "Want me to look at a different week? Just say which week works best."
+- "do you have anything later?" → ask: "How far out were you thinking? Next week, the week after?"
 
 RETURNING PATIENTS:
-If session already has an appointment:
-"I see you've got an appointment with Dr. [Name] on [date] at [time] -
-would you like to keep that, reschedule, or book a follow-up visit?"
+If patient already has a booked appointment:
+"I see you've got an appointment with Dr. [Name] on [date] at [time]. Would you like to keep that, reschedule, or book a follow-up?"
 
 PRESCRIPTION REFILLS:
-"For refills, your pharmacy is actually the fastest route - they can reach
-out to the doctor's office directly for authorization. Want me to help with
-anything else while you're here?"
+"For refills, your pharmacy is actually the fastest route — they can reach out to the doctor's office for authorization. Want me to help with anything else?"
 
-SAFETY (non-negotiable):
-- Zero medical advice. Zero diagnoses. Zero treatment opinions. Zero exceptions.
-- If asked about symptoms/treatment: "That's really one for the doctor - I wouldn't
-  want to steer you wrong on something like that."
-- Emergency language ("chest pain right now", "can't breathe", "severe"):
-  "If this feels like an emergency, please call 911 or head to the nearest ER
-  right now - don't wait."
+SAFETY — never break these:
+- Zero medical advice, diagnoses, or treatment opinions. Zero exceptions.
+- If asked about symptoms/treatment: "That's really a question for the doctor — I wouldn't want to steer you wrong."
+- Emergency language: "If this feels like an emergency, please call 911 or head to the nearest ER right away."
+- Never speculate about what a symptom might mean.
 
 Office: ${process.env.OFFICE_ADDRESS || '123 Wellness Drive, Suite 400, Springfield'}
 Phone: ${process.env.OFFICE_PHONE || '555-0100'}
-Hours: Monday-Friday 8:00 AM-6:00 PM, Saturday 9:00 AM-1:00 PM`;
+Hours: Monday–Friday 8:00 AM–6:00 PM, Saturday 9:00 AM–1:00 PM`;
 
 const TOOL_DEFINITIONS = [
   {
@@ -302,145 +284,51 @@ const normalizeTokens = (value = '') =>
     });
 
 const SPECIALTY_KEYWORD_MAP = {
-  // NEUROLOGY - Dr. James Okafor
-  headache: 'neurology',
-  headaches: 'neurology',
-  migraine: 'neurology',
-  migraines: 'neurology',
-  dizzy: 'neurology',
-  dizziness: 'neurology',
-  vertigo: 'neurology',
-  brain: 'neurology',
-  nerve: 'neurology',
-  nerves: 'neurology',
-  numbness: 'neurology',
-  tingling: 'neurology',
-  memory: 'neurology',
-  seizure: 'neurology',
-  seizures: 'neurology',
-  tremor: 'neurology',
-  tremors: 'neurology',
-  concussion: 'neurology',
-  neuropathy: 'neurology',
-  neurological: 'neurology',
-  ms: 'neurology',
-  parkinson: 'neurology',
-  stroke: 'neurology',
-  fainting: 'neurology',
-  blackout: 'neurology',
-  blackouts: 'neurology',
-
-  // CARDIOLOGY - Dr. Sarah Chen
-  heart: 'cardiology',
-  chest: 'cardiology',
-  cardiac: 'cardiology',
-  cardiovascular: 'cardiology',
-  palpitation: 'cardiology',
-  palpitations: 'cardiology',
-  'blood pressure': 'cardiology',
-  hypertension: 'cardiology',
-  cholesterol: 'cardiology',
-  'shortness of breath': 'cardiology',
-  arrhythmia: 'cardiology',
-  ecg: 'cardiology',
-  ekg: 'cardiology',
-  'irregular heartbeat': 'cardiology',
-  'heart rate': 'cardiology',
-  pulse: 'cardiology',
-  angina: 'cardiology',
-
-  // ORTHOPEDICS - Dr. Marcus Webb
-  knee: 'orthopedics',
-  back: 'orthopedics',
-  spine: 'orthopedics',
-  spinal: 'orthopedics',
-  joint: 'orthopedics',
-  joints: 'orthopedics',
-  shoulder: 'orthopedics',
-  hip: 'orthopedics',
-  hips: 'orthopedics',
-  bone: 'orthopedics',
-  bones: 'orthopedics',
-  fracture: 'orthopedics',
-  fractures: 'orthopedics',
-  wrist: 'orthopedics',
-  ankle: 'orthopedics',
-  elbow: 'orthopedics',
-  arthritis: 'orthopedics',
-  tendon: 'orthopedics',
-  ligament: 'orthopedics',
-  'sports injury': 'orthopedics',
-  orthopedic: 'orthopedics',
-  musculoskeletal: 'orthopedics',
-  neck: 'orthopedics',
-  foot: 'orthopedics',
-  feet: 'orthopedics',
-  leg: 'orthopedics',
-  legs: 'orthopedics',
-  'leg pain': 'orthopedics',
-  muscle: 'orthopedics',
-  muscles: 'orthopedics',
-  'muscle pain': 'orthopedics',
-  thigh: 'orthopedics',
-  calf: 'orthopedics',
-  hamstring: 'orthopedics',
-  quad: 'orthopedics',
-  shin: 'orthopedics',
-  limb: 'orthopedics',
-  sprain: 'orthopedics',
-  strain: 'orthopedics',
-  torn: 'orthopedics',
-  'lower back': 'orthopedics',
-  'upper back': 'orthopedics',
-  'arm pain': 'orthopedics',
-  arm: 'orthopedics',
-  hand: 'orthopedics',
-  finger: 'orthopedics',
-  fingers: 'orthopedics',
-  toe: 'orthopedics',
-  toes: 'orthopedics',
-  'hip replacement': 'orthopedics',
-  'knee replacement': 'orthopedics',
-  'physical therapy': 'orthopedics',
-
-  // DERMATOLOGY - Dr. Priya Nair
-  skin: 'dermatology',
-  rash: 'dermatology',
-  rashes: 'dermatology',
-  acne: 'dermatology',
-  hair: 'dermatology',
-  'hair loss': 'dermatology',
-  nail: 'dermatology',
-  nails: 'dermatology',
-  mole: 'dermatology',
-  moles: 'dermatology',
-  eczema: 'dermatology',
-  psoriasis: 'dermatology',
-  dermatitis: 'dermatology',
-  hives: 'dermatology',
-  itching: 'dermatology',
-  itchy: 'dermatology',
-  lesion: 'dermatology',
-  lesions: 'dermatology',
-  sunburn: 'dermatology',
-  wart: 'dermatology',
-  warts: 'dermatology',
-  fungal: 'dermatology',
-  ringworm: 'dermatology',
-  scalp: 'dermatology',
-  dryness: 'dermatology',
-  'dry skin': 'dermatology',
-  blemish: 'dermatology',
-  blemishes: 'dermatology',
-  spot: 'dermatology',
-  spots: 'dermatology',
-  breakout: 'dermatology',
-  pimple: 'dermatology',
-  pimples: 'dermatology',
-  allergy: 'dermatology',
-  'allergic reaction': 'dermatology',
-  'skin cancer': 'dermatology',
-  melanoma: 'dermatology'
+  headache: 'neurology', headaches: 'neurology', migraine: 'neurology',
+  migraines: 'neurology', dizzy: 'neurology', dizziness: 'neurology',
+  vertigo: 'neurology', brain: 'neurology', nerve: 'neurology',
+  nerves: 'neurology', numbness: 'neurology', tingling: 'neurology',
+  memory: 'neurology', seizure: 'neurology', seizures: 'neurology',
+  tremor: 'neurology', tremors: 'neurology', concussion: 'neurology',
+  neuropathy: 'neurology', neurological: 'neurology', fainting: 'neurology',
+  blackout: 'neurology', blackouts: 'neurology', 'nerve pain': 'neurology',
+  heart: 'cardiology', chest: 'cardiology', cardiac: 'cardiology',
+  cardiovascular: 'cardiology', palpitation: 'cardiology',
+  palpitations: 'cardiology', 'blood pressure': 'cardiology',
+  hypertension: 'cardiology', cholesterol: 'cardiology',
+  'shortness of breath': 'cardiology', arrhythmia: 'cardiology',
+  ecg: 'cardiology', ekg: 'cardiology', 'irregular heartbeat': 'cardiology',
+  'heart rate': 'cardiology', pulse: 'cardiology', angina: 'cardiology',
+  knee: 'orthopedics', back: 'orthopedics', spine: 'orthopedics',
+  spinal: 'orthopedics', joint: 'orthopedics', joints: 'orthopedics',
+  shoulder: 'orthopedics', hip: 'orthopedics', hips: 'orthopedics',
+  bone: 'orthopedics', bones: 'orthopedics', fracture: 'orthopedics',
+  fractures: 'orthopedics', wrist: 'orthopedics', ankle: 'orthopedics',
+  elbow: 'orthopedics', arthritis: 'orthopedics', tendon: 'orthopedics',
+  ligament: 'orthopedics', 'sports injury': 'orthopedics',
+  orthopedic: 'orthopedics', musculoskeletal: 'orthopedics',
+  neck: 'orthopedics', foot: 'orthopedics', feet: 'orthopedics',
+  leg: 'orthopedics', legs: 'orthopedics', 'leg pain': 'orthopedics',
+  muscle: 'orthopedics', muscles: 'orthopedics', 'muscle pain': 'orthopedics',
+  thigh: 'orthopedics', calf: 'orthopedics', hamstring: 'orthopedics',
+  quad: 'orthopedics', shin: 'orthopedics', limb: 'orthopedics',
+  sprain: 'orthopedics', strain: 'orthopedics', torn: 'orthopedics',
+  'lower back': 'orthopedics', 'upper back': 'orthopedics',
+  arm: 'orthopedics', hand: 'orthopedics', finger: 'orthopedics',
+  fingers: 'orthopedics', toe: 'orthopedics', toes: 'orthopedics',
+  'physical therapy': 'orthopedics', 'knee pain': 'orthopedics',
+  'back pain': 'orthopedics', 'hip pain': 'orthopedics',
+  skin: 'dermatology', rash: 'dermatology', rashes: 'dermatology',
+  acne: 'dermatology', hair: 'dermatology', 'hair loss': 'dermatology',
+  nail: 'dermatology', nails: 'dermatology', mole: 'dermatology',
+  moles: 'dermatology', eczema: 'dermatology', psoriasis: 'dermatology',
+  dermatitis: 'dermatology', hives: 'dermatology', itching: 'dermatology',
+  itchy: 'dermatology', lesion: 'dermatology', lesions: 'dermatology',
+  sunburn: 'dermatology', wart: 'dermatology', warts: 'dermatology',
+  fungal: 'dermatology', ringworm: 'dermatology', scalp: 'dermatology',
+  dryness: 'dermatology', 'dry skin': 'dermatology', blemish: 'dermatology',
+  pimple: 'dermatology', pimples: 'dermatology', breakout: 'dermatology',
+  'skin cancer': 'dermatology', melanoma: 'dermatology', spot: 'dermatology',
 };
 
 const SPECIALTY_QUERY_ALIASES = {
@@ -470,73 +358,15 @@ const BOOKING_FIELD_ORDER = [
 ];
 
 const OUT_OF_SCOPE_KEYWORDS = [
-  'stomach',
-  'abdomen',
-  'abdominal',
-  'gut',
-  'digestive',
-  'digestion',
-  'nausea',
-  'vomiting',
-  'diarrhea',
-  'constipation',
-  'bowel',
-  'intestine',
-  'liver',
-  'kidney',
-  'bladder',
-  'urinary',
-  'urology',
-  'gastro',
-  'eye',
-  'eyes',
-  'vision',
-  'sight',
-  'glasses',
-  'optometry',
-  'ophthalmology',
-  'ear',
-  'ears',
-  'hearing',
-  'nose',
-  'throat',
-  'ent',
-  'sinus',
-  'teeth',
-  'dental',
-  'dentist',
-  'gums',
-  'tooth',
-  'mental health',
-  'anxiety',
-  'depression',
-  'psychiatry',
-  'psychiatrist',
-  'therapy',
-  'counseling',
-  'psychology',
-  'psychologist',
-  'gynecology',
-  'obgyn',
-  'pregnancy',
-  'fertility',
-  'pediatric',
-  'pediatrics',
-  'children',
-  'child doctor',
-  'endocrine',
-  'thyroid',
-  'diabetes',
-  'hormone',
-  'oncology',
-  'cancer',
-  'tumor',
-  'chemotherapy',
-  'lung',
-  'respiratory',
-  'breathing',
-  'asthma',
-  'pulmonary'
+  'stomach', 'abdomen', 'abdominal', 'gut', 'digestive', 'nausea',
+  'vomiting', 'diarrhea', 'constipation', 'bowel', 'intestine', 'liver',
+  'kidney', 'bladder', 'urinary', 'urology', 'gastro', 'eye', 'eyes',
+  'vision', 'glasses', 'optometry', 'ear', 'ears', 'hearing', 'nose',
+  'sinus', 'throat', 'ent', 'teeth', 'dental', 'dentist', 'tooth',
+  'anxiety', 'depression', 'psychiatry', 'therapy', 'counseling',
+  'psychology', 'gynecology', 'obgyn', 'pregnancy', 'fertility',
+  'pediatric', 'pediatrics', 'oncology', 'tumor', 'chemotherapy',
+  'lung', 'breathing', 'asthma', 'pulmonary', 'thyroid', 'diabetes',
 ];
 
 const findMatchingProviders = (bodyPart = '') => {
@@ -1322,28 +1152,37 @@ const resolveSlotFromProviderOptions = async ({ providerId, optionNumber }) => {
     return null;
   }
 
+  const slotRangeStart = new Date();
+  const slotRangeEnd = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000);
   const { rows } = await query(
     `
-      SELECT id, provider_id, slot_datetime
+      SELECT id, id AS slot_id, provider_id, slot_datetime
       FROM provider_slots
       WHERE provider_id = $1
         AND is_available = TRUE
-        AND slot_datetime > NOW()
-        AND slot_datetime <= NOW() + INTERVAL '45 days'
+        AND slot_datetime >= $2
+        AND slot_datetime <= $3
       ORDER BY slot_datetime
-      LIMIT 6
+      LIMIT 20
     `,
-    [providerId]
+    [providerId, slotRangeStart.toISOString(), slotRangeEnd.toISOString()]
   );
 
-  const selectedSlot = rows[optionNumber - 1];
+  const selectedSlot = spreadSlotsAcrossDays(
+    rows.map((slot) => ({
+      slot_id: slot.slot_id,
+      provider_id: slot.provider_id,
+      slot_datetime: slot.slot_datetime
+    })),
+    6
+  )[optionNumber - 1];
 
   if (!selectedSlot) {
     return null;
   }
 
   return {
-    slot_id: selectedSlot.id,
+    slot_id: selectedSlot.slot_id,
     provider_id: selectedSlot.provider_id,
     slot_datetime: selectedSlot.slot_datetime,
     option_number: optionNumber

@@ -3,7 +3,8 @@ import twilio from 'twilio';
 
 dotenv.config();
 
-const PRACTICE_ADDRESS = '123 Wellness Drive';
+const PRACTICE_ADDRESS =
+  process.env.OFFICE_ADDRESS || '123 Wellness Drive, Suite 400, Springfield';
 
 const isConfigured = () =>
   Boolean(

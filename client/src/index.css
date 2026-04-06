@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -69,8 +69,22 @@ h1,
 h2,
 h3,
 h4 {
-  font-family: 'Fraunces', serif;
+  font-family: 'Instrument Serif', serif;
   letter-spacing: -0.03em;
+}
+
+body.landing-body {
+  color-scheme: dark;
+  background:
+    radial-gradient(circle at top, rgba(0, 194, 255, 0.14), transparent 28%),
+    radial-gradient(circle at 82% 16%, rgba(255, 255, 255, 0.08), transparent 18%),
+    #0a0a0f;
+  color: #ffffff;
+}
+
+body.landing-body::before,
+body.landing-body::after {
+  display: none;
 }
 
 @keyframes drift {
@@ -80,6 +94,40 @@ h4 {
   }
   50% {
     transform: translate3d(0, -18px, 0);
+  }
+}
+
+@keyframes landing-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(6px);
+  }
+}
+
+@keyframes patient-chat-message-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes patient-chat-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-4px);
   }
 }
 
@@ -94,6 +142,36 @@ h4 {
 }
 
 @layer components {
+  .fade-up {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.7s ease, transform 0.7s ease;
+  }
+
+  .fade-up.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .landing-grid {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 50px 50px;
+  }
+
+  .landing-chevron {
+    animation: landing-bounce 1.8s ease-in-out infinite;
+  }
+
+  .patient-chat-message-in {
+    animation: patient-chat-message-in 0.2s ease-out both;
+  }
+
+  .patient-chat-dot {
+    animation: patient-chat-dot 1s ease-in-out infinite;
+  }
+
   .glass-card {
     background: var(--surface);
     @apply rounded-[28px] border border-white/70 shadow-soft backdrop-blur-xl;

@@ -141,7 +141,7 @@
     You may be continuing a web chat conversation. The patient's name is {{patient_name}}.
     Context from web chat: {{conversation_summary}}
 
-    Office: 123 Wellness Drive, Suite 400, Springfield. Hours: Mon-Fri 8am-6pm. Phone: 555-0100.
+    Office: 123 Wellness Drive, Suite 400, Springfield. Hours: Mon-Fri 8am-6pm. Phone: [configured OFFICE_PHONE].
     ---
 
 [ ] Add Tools in ElevenLabs agent:

@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 // In production, this page should require admin authentication and authorization.
 
@@ -20,6 +21,13 @@ const emptySlotForm = {
   time: '09:00'
 };
 
+const PROVIDER_ACCENTS = {
+  'Dr. Sarah Chen': 'bg-rose-100 text-rose-700',
+  'Dr. Marcus Webb': 'bg-sky-100 text-sky-700',
+  'Dr. Priya Nair': 'bg-emerald-100 text-emerald-700',
+  'Dr. James Okafor': 'bg-violet-100 text-violet-700'
+};
+
 const apiRequest = async (path, options = {}) => {
   const response = await fetch(path, {
     headers: {
@@ -37,11 +45,17 @@ const apiRequest = async (path, options = {}) => {
   return data;
 };
 
-const formatDate = (value) =>
+const normalizeStatus = (value = '') => value.toLowerCase();
+
+const formatCalendarDate = (value) =>
   new Date(value).toLocaleDateString('en-US', {
-    weekday: 'short',
     month: 'short',
     day: 'numeric'
+  });
+
+const formatDay = (value) =>
+  new Date(value).toLocaleDateString('en-US', {
+    weekday: 'short'
   });
 
 const formatTime = (value) =>
@@ -59,14 +73,28 @@ const formatDateTime = (value) =>
     minute: '2-digit'
   });
 
-const formatLastUpdated = (value) =>
-  value
-    ? new Date(value).toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        second: '2-digit'
-      })
-    : 'Not yet refreshed';
+const formatRefreshAge = (value, nowValue) => {
+  if (!value) {
+    return 'Not yet refreshed';
+  }
+
+  const diffSeconds = Math.max(
+    0,
+    Math.floor((nowValue - new Date(value).getTime()) / 1000)
+  );
+
+  if (diffSeconds < 10) {
+    return 'just now';
+  }
+
+  if (diffSeconds < 60) {
+    return `${diffSeconds} seconds ago`;
+  }
+
+  const minutes = Math.floor(diffSeconds / 60);
+
+  return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+};
 
 const getInitials = (name = '') =>
   name
@@ -76,17 +104,136 @@ const getInitials = (name = '') =>
     .map((part) => part[0]?.toUpperCase())
     .join('');
 
-const getStatusBadgeClass = (status) => {
-  if (status === 'Available') {
-    return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100';
+const getProviderAccent = (providerName = '') =>
+  PROVIDER_ACCENTS[providerName] || 'bg-slate-200 text-slate-700';
+
+const getAvailabilityBadgeClass = (count) => {
+  if (count > 5) {
+    return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200';
   }
 
-  if (status?.toLowerCase() === 'cancelled') {
-    return 'bg-rose-50 text-rose-700 ring-1 ring-rose-100';
+  if (count >= 2) {
+    return 'bg-amber-50 text-amber-700 ring-1 ring-amber-200';
+  }
+
+  return 'bg-rose-50 text-rose-700 ring-1 ring-rose-200';
+};
+
+const getAppointmentStatusBadgeClass = (status) => {
+  const normalized = normalizeStatus(status);
+
+  if (normalized === 'confirmed') {
+    return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200';
+  }
+
+  if (normalized === 'cancelled') {
+    return 'bg-rose-50 text-rose-700 ring-1 ring-rose-200';
   }
 
   return 'bg-slate-100 text-slate-700 ring-1 ring-slate-200';
 };
+
+const getSlotStatusLabel = (slot) => {
+  const normalized = normalizeStatus(slot.status);
+
+  if (normalized === 'available') {
+    return 'Available';
+  }
+
+  if (normalized === 'cancelled') {
+    return 'Cancelled';
+  }
+
+  return 'Booked';
+};
+
+const getSlotStatusBadgeClass = (slot) => {
+  const label = getSlotStatusLabel(slot);
+
+  if (label === 'Available') {
+    return 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200';
+  }
+
+  if (label === 'Cancelled') {
+    return 'bg-rose-50 text-rose-700 ring-1 ring-rose-200';
+  }
+
+  return 'bg-slate-100 text-slate-700 ring-1 ring-slate-200';
+};
+
+const getWeekStart = (date = new Date()) => {
+  const copy = new Date(date);
+  const day = copy.getDay();
+  const diff = copy.getDate() - day + (day === 0 ? -6 : 1);
+  copy.setHours(0, 0, 0, 0);
+  copy.setDate(diff);
+  return copy;
+};
+
+const getWeekEnd = (date = new Date()) => {
+  const start = getWeekStart(date);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+  return end;
+};
+
+function CalendarIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M16 3v4" />
+      <path d="M8 3v4" />
+      <path d="M3 10h18" />
+    </svg>
+  );
+}
+
+function ClipboardIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="3" width="6" height="4" rx="1" />
+      <path d="M9 5H7a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
+    </svg>
+  );
+}
+
+function RefreshIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 2v6h-6" />
+      <path d="M3 12a9 9 0 0 1 15.55-6.36L21 8" />
+      <path d="M3 22v-6h6" />
+      <path d="M21 12a9 9 0 0 1-15.55 6.36L3 16" />
+    </svg>
+  );
+}
+
+function EmailIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="m4 7 8 6 8-6" />
+    </svg>
+  );
+}
+
+function PhoneIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.86 19.86 0 0 1-8.63-3.07 19.4 19.4 0 0 1-6-6A19.86 19.86 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.8.62 2.65a2 2 0 0 1-.45 2.11L8 9.73a16 16 0 0 0 6.27 6.27l1.25-1.28a2 2 0 0 1 2.11-.45c.86.29 1.75.5 2.65.62A2 2 0 0 1 22 16.92Z" />
+    </svg>
+  );
+}
+
+function StatCard({ label, value }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <p className="text-2xl font-bold text-slate-900">{value}</p>
+      <p className="mt-1 text-sm text-slate-500">{label}</p>
+    </div>
+  );
+}
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('availability');
@@ -95,19 +242,43 @@ export default function AdminDashboard() {
   const [selectedDoctor, setSelectedDoctor] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState('');
   const [openSlotFormProviderId, setOpenSlotFormProviderId] = useState('');
   const [slotForms, setSlotForms] = useState({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busyActionKey, setBusyActionKey] = useState('');
   const [lastUpdated, setLastUpdated] = useState('');
+  const [statusTick, setStatusTick] = useState(Date.now());
+  const [syncState, setSyncState] = useState('idle');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setStatusTick(Date.now());
+    }, 30000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  useEffect(() => {
+    if (syncState !== 'saved') {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setSyncState('idle');
+    }, 2000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [syncState]);
 
   const refreshDashboard = async ({ initialLoad = false } = {}) => {
     if (initialLoad) {
       setLoading(true);
     } else {
       setRefreshing(true);
+      setSyncState('saving');
     }
 
     setError('');
@@ -121,8 +292,13 @@ export default function AdminDashboard() {
       setProviders(providerData.providers || []);
       setAppointments(appointmentData.appointments || []);
       setLastUpdated(new Date().toISOString());
+
+      if (!initialLoad) {
+        setSyncState('saved');
+      }
     } catch (dashboardError) {
       setError(dashboardError.message);
+      setSyncState('idle');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -158,7 +334,13 @@ export default function AdminDashboard() {
       return;
     }
 
+    if (slotDate <= new Date()) {
+      setError("You can't add availability in the past.");
+      return;
+    }
+
     setBusyActionKey(`add-${providerId}`);
+    setSyncState('saving');
     setError('');
 
     try {
@@ -178,6 +360,7 @@ export default function AdminDashboard() {
       await refreshDashboard();
     } catch (slotError) {
       setError(slotError.message);
+      setSyncState('idle');
     } finally {
       setBusyActionKey('');
     }
@@ -185,6 +368,7 @@ export default function AdminDashboard() {
 
   const handleBlockSlot = async (slotId) => {
     setBusyActionKey(`block-${slotId}`);
+    setSyncState('saving');
     setError('');
 
     try {
@@ -198,13 +382,25 @@ export default function AdminDashboard() {
       await refreshDashboard();
     } catch (slotError) {
       setError(slotError.message);
+      setSyncState('idle');
     } finally {
       setBusyActionKey('');
     }
   };
 
-  const handleCancelAppointment = async (appointmentId) => {
+  const handleCancelAppointment = async (appointmentId, label = 'this appointment') => {
+    if (!appointmentId) {
+      return;
+    }
+
+    const confirmed = window.confirm(`Cancel ${label}?`);
+
+    if (!confirmed) {
+      return;
+    }
+
     setBusyActionKey(`cancel-${appointmentId}`);
+    setSyncState('saving');
     setError('');
 
     try {
@@ -218,421 +414,619 @@ export default function AdminDashboard() {
       await refreshDashboard();
     } catch (appointmentError) {
       setError(appointmentError.message);
+      setSyncState('idle');
     } finally {
       setBusyActionKey('');
     }
   };
 
-  const filteredAppointments = appointments.filter((appointment) => {
-    if (selectedDoctor && appointment.provider_id !== selectedDoctor) {
-      return false;
+  const handleCopy = async (value) => {
+    if (!value) {
+      return;
     }
 
-    const appointmentDate = new Date(appointment.slot_datetime);
-
-    if (startDate) {
-      const startBoundary = new Date(`${startDate}T00:00:00`);
-
-      if (appointmentDate < startBoundary) {
-        return false;
-      }
+    try {
+      await navigator.clipboard.writeText(value);
+      setSyncState('saved');
+    } catch (_copyError) {
+      setError('Could not copy to clipboard on this device.');
     }
+  };
 
-    if (endDate) {
-      const endBoundary = new Date(`${endDate}T23:59:59`);
+  const clearFilters = () => {
+    setSelectedDoctor('');
+    setStartDate('');
+    setEndDate('');
+    setSelectedStatus('');
+  };
 
-      if (appointmentDate > endBoundary) {
-        return false;
-      }
-    }
+  const allSlots = useMemo(
+    () => providers.flatMap((provider) => provider.slots || []),
+    [providers]
+  );
 
-    return true;
-  });
+  const availabilityCount = useMemo(
+    () => allSlots.filter((slot) => getSlotStatusLabel(slot) === 'Available').length,
+    [allSlots]
+  );
+
+  const availabilityStats = useMemo(() => {
+    const today = new Date();
+    const startOfToday = new Date(today);
+    startOfToday.setHours(0, 0, 0, 0);
+    const endOfToday = new Date(startOfToday);
+    endOfToday.setHours(23, 59, 59, 999);
+    const weekStart = getWeekStart(today);
+    const weekEnd = getWeekEnd(today);
+    const nextWeek = new Date(today);
+    nextWeek.setDate(nextWeek.getDate() + 7);
+
+    return {
+      totalThisWeek: allSlots.filter((slot) => {
+        const date = new Date(slot.slot_datetime);
+        return date >= weekStart && date <= weekEnd;
+      }).length,
+      bookedThisWeek: allSlots.filter((slot) => {
+        const date = new Date(slot.slot_datetime);
+        return (
+          date >= weekStart &&
+          date <= weekEnd &&
+          getSlotStatusLabel(slot) !== 'Available'
+        );
+      }).length,
+      availableToday: allSlots.filter((slot) => {
+        const date = new Date(slot.slot_datetime);
+        return (
+          date >= startOfToday &&
+          date <= endOfToday &&
+          getSlotStatusLabel(slot) === 'Available'
+        );
+      }).length,
+      nextSevenDays: allSlots.filter((slot) => {
+        const date = new Date(slot.slot_datetime);
+        return date >= today && date <= nextWeek;
+      }).length
+    };
+  }, [allSlots]);
+
+  const filteredAppointments = useMemo(
+    () =>
+      appointments.filter((appointment) => {
+        if (selectedDoctor && appointment.provider_id !== selectedDoctor) {
+          return false;
+        }
+
+        const normalized = normalizeStatus(appointment.status);
+
+        if (selectedStatus && normalized !== selectedStatus) {
+          return false;
+        }
+
+        const appointmentDate = new Date(appointment.slot_datetime);
+
+        if (startDate) {
+          const startBoundary = new Date(`${startDate}T00:00:00`);
+
+          if (appointmentDate < startBoundary) {
+            return false;
+          }
+        }
+
+        if (endDate) {
+          const endBoundary = new Date(`${endDate}T23:59:59`);
+
+          if (appointmentDate > endBoundary) {
+            return false;
+          }
+        }
+
+        return true;
+      }),
+    [appointments, selectedDoctor, selectedStatus, startDate, endDate]
+  );
+
+  const appointmentStats = useMemo(() => {
+    const now = new Date();
+    const nextWeek = new Date(now);
+    nextWeek.setDate(nextWeek.getDate() + 7);
+
+    return {
+      total: filteredAppointments.length,
+      confirmed: filteredAppointments.filter(
+        (appointment) => normalizeStatus(appointment.status) === 'confirmed'
+      ).length,
+      cancelled: filteredAppointments.filter(
+        (appointment) => normalizeStatus(appointment.status) === 'cancelled'
+      ).length,
+      nextSevenDays: filteredAppointments.filter((appointment) => {
+        const date = new Date(appointment.slot_datetime);
+        return date >= now && date <= nextWeek;
+      }).length
+    };
+  }, [filteredAppointments]);
+
+  const topBarStatus = refreshing || busyActionKey
+    ? { tone: 'text-sky-600', label: 'Syncing...' }
+    : syncState === 'saved'
+      ? { tone: 'text-emerald-600', label: 'Saved ✓' }
+      : { tone: 'text-emerald-600', label: 'Live — changes apply instantly' };
 
   return (
-    <div className="rounded-[32px] border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.08)]">
-      <div className="grid min-h-[78vh] gap-0 lg:grid-cols-[240px_1fr]">
-        <aside className="border-b border-slate-200 bg-slate-50/80 p-5 lg:border-b-0 lg:border-r">
-          <div className="lg:sticky lg:top-24">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">
-              Internal Tools
-            </p>
-            <h1 className="mt-2 text-2xl font-semibold text-slate-900">Greenfield Admin</h1>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
-              Manage live provider availability and appointment operations from one place.
-            </p>
+    <div className="flex h-screen flex-col overflow-hidden bg-[#F7F8FA] text-slate-900">
+      <header className="flex h-14 items-center justify-between border-b border-slate-200 bg-white px-4 md:px-6">
+        <div>
+          <p className="text-sm font-bold tracking-[0.16em] text-slate-900">GREENFIELD</p>
+          <p className="text-[11px] text-slate-400">Admin Console</p>
+        </div>
 
-            <nav className="mt-8 space-y-2">
+        <div className={`hidden items-center gap-2 text-sm font-medium md:flex ${topBarStatus.tone}`}>
+          <span className="relative flex h-3 w-3">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-35" />
+            <span className="relative inline-flex h-3 w-3 rounded-full bg-current" />
+          </span>
+          <span>{topBarStatus.label}</span>
+        </div>
+
+        <Link
+          to="/patient"
+          className="text-sm font-medium text-slate-500 transition hover:text-slate-900"
+        >
+          ← Patient Portal
+        </Link>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+        <aside className="hidden w-[200px] shrink-0 border-r border-slate-200 bg-[#FAFAFA] md:block">
+          <div className="p-4">
+            <nav className="space-y-1">
               <button
                 type="button"
                 onClick={() => setActiveTab('availability')}
-                className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
+                className={`flex w-full items-center justify-between rounded-r-xl border-l-2 px-3 py-3 text-sm font-medium transition ${
                   activeTab === 'availability'
-                    ? 'bg-sky-500 text-white shadow-[0_12px_24px_rgba(14,165,233,0.22)]'
-                    : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50'
+                    ? 'border-sky-600 bg-sky-50 text-sky-600'
+                    : 'border-transparent text-slate-600 hover:bg-white hover:text-slate-900'
                 }`}
               >
-                <span>Provider Availability</span>
-                <span className="text-xs">{providers.length}</span>
+                <span className="flex items-center gap-2">
+                  <CalendarIcon />
+                  <span>Provider Availability</span>
+                </span>
+                <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500 ring-1 ring-slate-200">
+                  {availabilityCount}
+                </span>
               </button>
               <button
                 type="button"
                 onClick={() => setActiveTab('appointments')}
-                className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
+                className={`flex w-full items-center justify-between rounded-r-xl border-l-2 px-3 py-3 text-sm font-medium transition ${
                   activeTab === 'appointments'
-                    ? 'bg-sky-500 text-white shadow-[0_12px_24px_rgba(14,165,233,0.22)]'
-                    : 'bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50'
+                    ? 'border-sky-600 bg-sky-50 text-sky-600'
+                    : 'border-transparent text-slate-600 hover:bg-white hover:text-slate-900'
                 }`}
               >
-                <span>Appointments</span>
-                <span className="text-xs">{appointments.length}</span>
+                <span className="flex items-center gap-2">
+                  <ClipboardIcon />
+                  <span>Appointments</span>
+                </span>
+                <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500 ring-1 ring-slate-200">
+                  {appointments.length}
+                </span>
               </button>
             </nav>
           </div>
         </aside>
 
-        <main className="p-5 md:p-7">
-          <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">
-                {activeTab === 'availability' ? 'Provider Availability' : 'Appointments'}
-              </p>
-              <div className="mt-2 flex flex-wrap items-center gap-3">
-                <h2 className="text-3xl font-semibold text-slate-900">
-                  {activeTab === 'availability'
-                    ? 'Control the next 14 days of scheduling supply'
-                    : 'Review and manage all booked visits'}
+        <main className="min-w-0 flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-6">
+            <div className="flex flex-col gap-3 border-b border-slate-200 pb-5 md:flex-row md:items-end md:justify-between">
+              <div>
+                <h2 className="text-2xl font-semibold text-slate-900">
+                  {activeTab === 'availability' ? 'Provider Availability' : 'Appointments'}
                 </h2>
-                <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                  Live - changes apply instantly
-                </span>
+                <p className="mt-1 text-sm text-slate-500">
+                  Last refreshed: {formatRefreshAge(lastUpdated, statusTick)}
+                </p>
               </div>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                {activeTab === 'availability'
-                  ? 'Add new slots, block open times, or cancel existing bookings. Patient availability updates immediately because Aria reads the database live on each turn.'
-                  : 'Filter appointments by provider and date range, then cancel bookings as needed.'}
-              </p>
-            </div>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-200">
-                Last updated: <span className="font-semibold text-slate-800">{formatLastUpdated(lastUpdated)}</span>
-              </div>
               <button
                 type="button"
                 onClick={() => refreshDashboard()}
-                className="inline-flex items-center justify-center rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+                className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
                 disabled={refreshing}
               >
+                <RefreshIcon />
                 {refreshing ? 'Refreshing...' : 'Refresh'}
               </button>
             </div>
-          </div>
 
-          {error ? (
-            <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {error}
-            </div>
-          ) : null}
+            {error ? (
+              <div className="mt-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {error}
+              </div>
+            ) : null}
 
-          {loading ? (
-            <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 px-6 py-16 text-center text-sm text-slate-500">
-              Loading admin data...
-            </div>
-          ) : null}
+            {loading ? (
+              <div className="mt-6 rounded-xl border border-slate-200 bg-white px-6 py-16 text-center text-sm text-slate-500 shadow-sm">
+                Loading admin data...
+              </div>
+            ) : null}
 
-          {!loading && activeTab === 'availability' ? (
-            <div className="mt-6 grid gap-5 xl:grid-cols-2">
-              {providers.map((provider) => {
-                const formState = slotForms[provider.id] || emptySlotForm;
+            {!loading && activeTab === 'availability' ? (
+              <div className="pb-20 md:pb-0">
+                <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <StatCard label="Total slots this week" value={availabilityStats.totalThisWeek} />
+                  <StatCard label="Booked this week" value={availabilityStats.bookedThisWeek} />
+                  <StatCard label="Available today" value={availabilityStats.availableToday} />
+                  <StatCard label="Next 7 days" value={availabilityStats.nextSevenDays} />
+                </div>
 
-                return (
-                  <section
-                    key={provider.id}
-                    className="rounded-3xl border border-slate-200 bg-white shadow-sm"
-                  >
-                    <div className="flex flex-col gap-4 border-b border-slate-200 p-5 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="flex items-center gap-4">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-sky-100 text-sm font-semibold text-sky-700">
-                          {getInitials(provider.name)}
-                        </div>
-                        <div>
-                          <h3 className="text-xl font-semibold text-slate-900">{provider.name}</h3>
-                          <p className="text-sm text-slate-500">{provider.specialty}</p>
-                        </div>
-                      </div>
+                <div className="mt-6 space-y-5">
+                  {providers.map((provider) => {
+                    const formState = slotForms[provider.id] || emptySlotForm;
+                    const availableSlots = (provider.slots || []).filter(
+                      (slot) => getSlotStatusLabel(slot) === 'Available'
+                    ).length;
+                    const isOpen = openSlotFormProviderId === provider.id;
 
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setOpenSlotFormProviderId((current) =>
-                            current === provider.id ? '' : provider.id
-                          )
-                        }
-                        className="inline-flex items-center justify-center rounded-2xl bg-sky-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-600"
+                    return (
+                      <section
+                        key={provider.id}
+                        className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
                       >
-                        Add slot
-                      </button>
-                    </div>
+                        <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+                          <div className="flex items-center gap-4">
+                            <div className={`flex h-12 w-12 items-center justify-center rounded-full text-sm font-semibold ${getProviderAccent(provider.name)}`}>
+                              {getInitials(provider.name)}
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-semibold text-slate-900">{provider.name}</h3>
+                              <p className="text-sm text-slate-500">{provider.specialty}</p>
+                            </div>
+                            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${getAvailabilityBadgeClass(availableSlots)}`}>
+                              {availableSlots} available slots
+                            </span>
+                          </div>
 
-                    {openSlotFormProviderId === provider.id ? (
-                      <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
-                        <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
-                          <input
-                            type="date"
-                            value={formState.date}
-                            onChange={(event) =>
-                              setProviderSlotForm(provider.id, { date: event.target.value })
-                            }
-                            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
-                          />
-                          <select
-                            value={formState.time}
-                            onChange={(event) =>
-                              setProviderSlotForm(provider.id, { time: event.target.value })
-                            }
-                            className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
-                          >
-                            {SLOT_TIME_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
                           <button
                             type="button"
-                            onClick={() => handleAddSlot(provider.id)}
-                            className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
-                            disabled={busyActionKey === `add-${provider.id}`}
+                            onClick={() =>
+                              setOpenSlotFormProviderId((current) =>
+                                current === provider.id ? '' : provider.id
+                              )
+                            }
+                            className="inline-flex min-h-10 items-center justify-center rounded-lg bg-sky-500 px-4 text-sm font-semibold text-white transition hover:bg-sky-600"
                           >
-                            {busyActionKey === `add-${provider.id}` ? 'Adding...' : 'Add'}
+                            Add slot
                           </button>
                         </div>
-                      </div>
-                    ) : null}
 
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full divide-y divide-slate-200">
-                        <thead className="bg-slate-50">
-                          <tr>
-                            <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                              Date
-                            </th>
-                            <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                              Time
-                            </th>
-                            <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                              Status
-                            </th>
-                            <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                              Action
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {provider.slots.length ? (
-                            provider.slots.map((slot) => (
-                              <tr key={slot.id} className="transition hover:bg-slate-50">
-                                <td className="px-5 py-4 text-sm text-slate-700">
-                                  {formatDate(slot.slot_datetime)}
-                                </td>
-                                <td className="px-5 py-4 text-sm text-slate-700">
-                                  {formatTime(slot.slot_datetime)}
-                                </td>
-                                <td className="px-5 py-4">
-                                  <span
-                                    className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClass(
-                                      slot.status
-                                    )}`}
-                                  >
-                                    {slot.status}
-                                  </span>
-                                </td>
-                                <td className="px-5 py-4 text-right">
-                                  {slot.status === 'Available' ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleBlockSlot(slot.id)}
-                                      className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-60"
-                                      disabled={busyActionKey === `block-${slot.id}`}
-                                    >
-                                      {busyActionKey === `block-${slot.id}` ? 'Blocking...' : 'Block'}
-                                    </button>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleCancelAppointment(slot.appointment_id)}
-                                      className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-60"
-                                      disabled={busyActionKey === `cancel-${slot.appointment_id}`}
-                                    >
-                                      {busyActionKey === `cancel-${slot.appointment_id}`
-                                        ? 'Cancelling...'
-                                        : 'Cancel booking'}
-                                    </button>
-                                  )}
-                                </td>
+                        <div
+                          className={`overflow-hidden border-b border-slate-200 bg-slate-50 px-5 transition-all duration-300 ${
+                            isOpen ? 'max-h-48 py-4' : 'max-h-0 py-0'
+                          }`}
+                        >
+                          <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto_auto]">
+                            <input
+                              type="date"
+                              value={formState.date}
+                              onChange={(event) =>
+                                setProviderSlotForm(provider.id, { date: event.target.value })
+                              }
+                              className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
+                            />
+                            <select
+                              value={formState.time}
+                              onChange={(event) =>
+                                setProviderSlotForm(provider.id, { time: event.target.value })
+                              }
+                              className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
+                            >
+                              {SLOT_TIME_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => handleAddSlot(provider.id)}
+                              className="inline-flex min-h-10 items-center justify-center rounded-lg bg-sky-500 px-4 text-sm font-semibold text-white transition hover:bg-sky-600 disabled:opacity-60"
+                              disabled={busyActionKey === `add-${provider.id}`}
+                            >
+                              {busyActionKey === `add-${provider.id}` ? 'Adding...' : 'Add'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setOpenSlotFormProviderId('')}
+                              className="text-sm font-medium text-slate-500 transition hover:text-slate-900"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full">
+                            <thead className="border-b border-slate-200 bg-slate-50">
+                              <tr className="text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                <th className="px-5 py-3">Date</th>
+                                <th className="px-5 py-3">Day</th>
+                                <th className="px-5 py-3">Time</th>
+                                <th className="px-5 py-3">Status</th>
+                                <th className="px-5 py-3 text-right">Action</th>
                               </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td
-                                colSpan="4"
-                                className="px-5 py-10 text-center text-sm text-slate-500"
-                              >
-                                No visible available or booked slots in the next 14 days.
+                            </thead>
+                            <tbody>
+                              {provider.slots.length ? (
+                                provider.slots.map((slot) => {
+                                  const slotLabel = getSlotStatusLabel(slot);
+                                  const rowTone =
+                                    slotLabel === 'Available' ? 'bg-white' : 'bg-slate-50';
+
+                                  return (
+                                    <tr
+                                      key={slot.id}
+                                      className={`${rowTone} border-b border-slate-100 transition hover:bg-slate-50`}
+                                    >
+                                      <td className="px-5 py-4 text-sm text-slate-700">
+                                        {formatCalendarDate(slot.slot_datetime)}
+                                      </td>
+                                      <td className="px-5 py-4 text-sm text-slate-500">
+                                        {formatDay(slot.slot_datetime)}
+                                      </td>
+                                      <td className="px-5 py-4 text-sm text-slate-700">
+                                        {formatTime(slot.slot_datetime)}
+                                      </td>
+                                      <td className="px-5 py-4">
+                                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getSlotStatusBadgeClass(slot)}`}>
+                                          {slotLabel}
+                                        </span>
+                                      </td>
+                                      <td className="px-5 py-4 text-right">
+                                        {slotLabel === 'Available' ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleBlockSlot(slot.id)}
+                                            className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60"
+                                            disabled={busyActionKey === `block-${slot.id}`}
+                                          >
+                                            {busyActionKey === `block-${slot.id}` ? 'Blocking...' : 'Block'}
+                                          </button>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              handleCancelAppointment(
+                                                slot.appointment_id,
+                                                `the booking at ${formatTime(slot.slot_datetime)}`
+                                              )
+                                            }
+                                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-60"
+                                            disabled={
+                                              !slot.appointment_id ||
+                                              busyActionKey === `cancel-${slot.appointment_id}`
+                                            }
+                                          >
+                                            {busyActionKey === `cancel-${slot.appointment_id}`
+                                              ? 'Cancelling...'
+                                              : 'Cancel'}
+                                          </button>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              ) : (
+                                <tr>
+                                  <td colSpan="5" className="px-5 py-10 text-center text-sm text-slate-500">
+                                    No visible available or booked slots in the next 14 days.
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {!loading && activeTab === 'appointments' ? (
+              <div className="pb-20 md:pb-0">
+                <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <StatCard label="Filtered appointments" value={appointmentStats.total} />
+                  <StatCard label="Confirmed" value={appointmentStats.confirmed} />
+                  <StatCard label="Cancelled" value={appointmentStats.cancelled} />
+                  <StatCard label="Next 7 days" value={appointmentStats.nextSevenDays} />
+                </div>
+
+                <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_1fr_1fr_auto]">
+                    <select
+                      value={selectedDoctor}
+                      onChange={(event) => setSelectedDoctor(event.target.value)}
+                      className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
+                    >
+                      <option value="">All doctors</option>
+                      {providers.map((provider) => (
+                        <option key={provider.id} value={provider.id}>
+                          {provider.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(event) => setStartDate(event.target.value)}
+                      className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
+                    />
+
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(event) => setEndDate(event.target.value)}
+                      className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
+                    />
+
+                    <select
+                      value={selectedStatus}
+                      onChange={(event) => setSelectedStatus(event.target.value)}
+                      className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
+                    >
+                      <option value="">All statuses</option>
+                      <option value="confirmed">Confirmed</option>
+                      <option value="cancelled">Cancelled</option>
+                      <option value="completed">Completed</option>
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={clearFilters}
+                      className="text-sm font-medium text-slate-500 transition hover:text-slate-900 hover:underline"
+                    >
+                      Clear filters
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full">
+                      <thead className="border-b border-slate-200 bg-slate-50">
+                        <tr className="text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          <th className="px-5 py-3">Patient</th>
+                          <th className="px-5 py-3">Doctor</th>
+                          <th className="px-5 py-3">Date &amp; Time</th>
+                          <th className="px-5 py-3">Reason</th>
+                          <th className="px-5 py-3">Status</th>
+                          <th className="px-5 py-3">Contact</th>
+                          <th className="px-5 py-3 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredAppointments.length ? (
+                          filteredAppointments.map((appointment) => (
+                            <tr
+                              key={appointment.id}
+                              className="border-b border-slate-100 transition hover:bg-slate-50"
+                            >
+                              <td className="px-5 py-4 text-sm text-slate-700">
+                                <p className="font-semibold text-slate-900">
+                                  {appointment.patient_first_name} {appointment.patient_last_name}
+                                </p>
+                              </td>
+                              <td className="px-5 py-4 text-sm text-slate-700">
+                                <p className="font-medium text-slate-900">{appointment.provider_name}</p>
+                                <p className="mt-1 text-xs text-slate-500">{appointment.specialty}</p>
+                              </td>
+                              <td className="px-5 py-4 text-sm text-slate-700">
+                                {formatDateTime(appointment.slot_datetime)}
+                              </td>
+                              <td className="px-5 py-4 text-sm text-slate-700">
+                                {appointment.reason || 'General consultation'}
+                              </td>
+                              <td className="px-5 py-4">
+                                <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getAppointmentStatusBadgeClass(appointment.status)}`}>
+                                  {appointment.status}
+                                </span>
+                              </td>
+                              <td className="px-5 py-4 text-sm text-slate-700">
+                                <div className="space-y-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopy(appointment.patient_phone)}
+                                    className="flex items-center gap-2 text-left text-slate-600 transition hover:text-slate-900"
+                                    title={appointment.patient_phone || 'No phone provided'}
+                                  >
+                                    <PhoneIcon />
+                                    <span>{appointment.patient_phone || 'No phone provided'}</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopy(appointment.patient_email)}
+                                    className="flex items-center gap-2 text-left text-slate-600 transition hover:text-slate-900"
+                                    title={appointment.patient_email || 'No email provided'}
+                                  >
+                                    <EmailIcon />
+                                    <span>{appointment.patient_email || 'No email provided'}</span>
+                                  </button>
+                                </div>
+                              </td>
+                              <td className="px-5 py-4 text-right">
+                                {normalizeStatus(appointment.status) === 'cancelled' ? (
+                                  <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                                    Cancelled
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleCancelAppointment(
+                                        appointment.id,
+                                        `${appointment.patient_first_name} ${appointment.patient_last_name}'s appointment`
+                                      )
+                                    }
+                                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-60"
+                                    disabled={busyActionKey === `cancel-${appointment.id}`}
+                                  >
+                                    {busyActionKey === `cancel-${appointment.id}`
+                                      ? 'Cancelling...'
+                                      : 'Cancel'}
+                                  </button>
+                                )}
                               </td>
                             </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </section>
-                );
-              })}
-            </div>
-          ) : null}
-
-          {!loading && activeTab === 'appointments' ? (
-            <div className="mt-6 space-y-5">
-              <div className="grid gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1fr_1fr_1fr_auto]">
-                <select
-                  value={selectedDoctor}
-                  onChange={(event) => setSelectedDoctor(event.target.value)}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
-                >
-                  <option value="">All doctors</option>
-                  {providers.map((provider) => (
-                    <option key={provider.id} value={provider.id}>
-                      {provider.name}
-                    </option>
-                  ))}
-                </select>
-
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(event) => setStartDate(event.target.value)}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
-                />
-
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(event) => setEndDate(event.target.value)}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
-                />
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedDoctor('');
-                    setStartDate('');
-                    setEndDate('');
-                  }}
-                  className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-white"
-                >
-                  Clear filters
-                </button>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan="7" className="px-5 py-16 text-center">
+                              <div className="mx-auto flex max-w-sm flex-col items-center text-slate-500">
+                                <span className="rounded-full bg-slate-100 p-3 text-slate-400">
+                                  <ClipboardIcon />
+                                </span>
+                                <p className="mt-4 text-sm font-medium text-slate-700">
+                                  No appointments match the current filters
+                                </p>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
-
-              <div className="overflow-x-auto rounded-3xl border border-slate-200 bg-white">
-                <table className="min-w-full divide-y divide-slate-200">
-                  <thead className="bg-slate-50">
-                    <tr>
-                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        Patient
-                      </th>
-                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        Doctor
-                      </th>
-                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        Date / Time
-                      </th>
-                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        Reason
-                      </th>
-                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        Status
-                      </th>
-                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        Contact
-                      </th>
-                      <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                        Action
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {filteredAppointments.length ? (
-                      filteredAppointments.map((appointment) => (
-                        <tr key={appointment.id} className="transition hover:bg-slate-50">
-                          <td className="px-5 py-4 text-sm text-slate-700">
-                            <p className="font-semibold text-slate-900">
-                              {appointment.patient_first_name} {appointment.patient_last_name}
-                            </p>
-                          </td>
-                          <td className="px-5 py-4 text-sm text-slate-700">
-                            <p className="font-medium text-slate-900">{appointment.provider_name}</p>
-                            <p className="mt-1 text-xs text-slate-500">{appointment.specialty}</p>
-                          </td>
-                          <td className="px-5 py-4 text-sm text-slate-700">
-                            {formatDateTime(appointment.slot_datetime)}
-                          </td>
-                          <td className="px-5 py-4 text-sm text-slate-700">
-                            {appointment.reason || 'General consultation'}
-                          </td>
-                          <td className="px-5 py-4">
-                            <span
-                              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClass(
-                                appointment.status
-                              )}`}
-                            >
-                              {appointment.status}
-                            </span>
-                          </td>
-                          <td className="px-5 py-4 text-sm text-slate-700">
-                            <p>{appointment.patient_email || 'No email provided'}</p>
-                            <p className="mt-1 text-xs text-slate-500">
-                              {appointment.patient_phone || 'No phone provided'}
-                            </p>
-                          </td>
-                          <td className="px-5 py-4 text-right">
-                            {appointment.status === 'cancelled' ? (
-                              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                                Cancelled
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleCancelAppointment(appointment.id)}
-                                className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 disabled:opacity-60"
-                                disabled={busyActionKey === `cancel-${appointment.id}`}
-                              >
-                                {busyActionKey === `cancel-${appointment.id}`
-                                  ? 'Cancelling...'
-                                  : 'Cancel'}
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td
-                          colSpan="7"
-                          className="px-5 py-12 text-center text-sm text-slate-500"
-                        >
-                          No appointments match the current filters.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
         </main>
       </div>
+
+      <nav className="border-t border-slate-200 bg-white px-3 py-2 md:hidden">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveTab('availability')}
+            className={`rounded-lg px-3 py-2 text-sm font-medium ${
+              activeTab === 'availability' ? 'bg-sky-50 text-sky-600' : 'text-slate-600'
+            }`}
+          >
+            Availability
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('appointments')}
+            className={`rounded-lg px-3 py-2 text-sm font-medium ${
+              activeTab === 'appointments' ? 'bg-sky-50 text-sky-600' : 'text-slate-600'
+            }`}
+          >
+            Appointments
+          </button>
+        </div>
+      </nav>
     </div>
   );
 }

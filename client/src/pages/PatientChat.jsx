@@ -23,6 +23,7 @@ const normalizeConversationHistory = (history = []) => {
 
   const normalizedHistory = history
     .filter((message) => message && ['assistant', 'user'].includes(message.role) && message.content)
+    .filter((message) => message.source !== 'voice')
     .filter(
       (message) =>
         !(
@@ -279,8 +280,9 @@ export default function PatientChat() {
   const [intakeComplete, setIntakeComplete] = useState(false);
   const [smsOptedIn, setSmsOptedIn] = useState(true);
   const [patientPhone, setPatientPhone] = useState('');
+  const [callPhoneInput, setCallPhoneInput] = useState('');
   const [appointment, setAppointment] = useState(null);
-  const canInitiateVoiceCall = Boolean(patientPhone);
+  const canInitiateVoiceCall = Boolean(sessionId) && !loadingSession;
 
   useEffect(() => {
     if (hasInitialized.current) {
@@ -527,7 +529,14 @@ export default function PatientChat() {
   };
 
   const handleCallConfirm = async () => {
-    if (!sessionId || !patientPhone) {
+    if (!sessionId) {
+      return;
+    }
+
+    const resolvedCallPhone = (callPhoneInput || patientPhone).trim();
+
+    if (!resolvedCallPhone) {
+      setCallError('Please enter the best phone number to reach you.');
       return;
     }
 
@@ -535,9 +544,16 @@ export default function PatientChat() {
     setIsInitiatingCall(true);
 
     try {
+      await apiRequest(`/api/session/${sessionId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ patientPhone: resolvedCallPhone })
+      });
+
+      setPatientPhone(resolvedCallPhone);
+
       const data = await apiRequest('/api/voice/initiate-call', {
         method: 'POST',
-        body: JSON.stringify({ sessionId })
+        body: JSON.stringify({ sessionId, phoneNumber: resolvedCallPhone })
       });
 
       setShowCallModal(false);
@@ -547,9 +563,10 @@ export default function PatientChat() {
         ...currentMessages,
         buildLocalMessage(
           'assistant',
-          `Calling you now at ${data.phone || patientPhone}! Pick up when you see the call — I'll have everything from our chat ready to go.`
+          `Calling you now at ${data.phone || resolvedCallPhone}! Pick up when you see the call - I'll have everything from our chat ready to go.`
         )
       ]);
+      await refreshSessionState(sessionId);
     } catch (callRequestError) {
       const fallbackMessage = `Couldn't initiate the call. Please try again or call us at ${OFFICE_PHONE}.`;
       setCallError(callRequestError.message || fallbackMessage);
@@ -561,11 +578,12 @@ export default function PatientChat() {
   };
 
   const handleCallButtonClick = () => {
-    if (!canInitiateVoiceCall || isCallInProgress) {
+    if (!sessionId || isCallInProgress) {
       return;
     }
 
     setCallError('');
+    setCallPhoneInput(patientPhone || '');
     setShowCallModal(true);
   };
 
@@ -681,8 +699,8 @@ export default function PatientChat() {
           <div
             className="mt-8"
             title={
-              !canInitiateVoiceCall
-                ? 'Complete intake first to enable voice call'
+              !patientPhone
+                ? 'Add a phone number and Aria can call you right away'
                 : undefined
             }
           >
@@ -696,15 +714,15 @@ export default function PatientChat() {
                     ? 'bg-sky-500 text-white shadow-[0_12px_24px_rgba(14,165,233,0.25)] hover:-translate-y-0.5 hover:bg-sky-600 focus:ring-sky-100'
                     : 'cursor-not-allowed bg-sky-200 text-sky-800/75 shadow-none'
               }`}
-              disabled={loadingSession || !canInitiateVoiceCall || isCallInProgress}
+              disabled={!canInitiateVoiceCall || isCallInProgress}
             >
               {isCallInProgress ? 'Call in progress...' : 'Call me instead'}
             </button>
           </div>
 
           <p className="mt-3 text-sm leading-6 text-slate-500">
-            Prefer a phone call? Aria can continue by voice as soon as your phone number is on
-            file.
+            Prefer a phone call? If you have not shared a phone number yet, you can add it right
+            before Aria calls.
           </p>
         </aside>
 
@@ -846,10 +864,22 @@ export default function PatientChat() {
           <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl animate-rise transition-all duration-300">
             <h2 className="text-2xl font-semibold text-slate-900">Continue by phone?</h2>
             <p className="mt-3 text-sm leading-6 text-slate-600">
-              We&apos;ll call you at <span className="font-semibold text-slate-900">{patientPhone}</span>{' '}
-              right now. Aria will have full context of your conversation and pick up right where
-              we left off.
+              Enter the best number to reach you and Aria will call right away. She&apos;ll keep the
+              chat context and collect anything still missing on the call.
             </p>
+
+            <label className="mt-4 block text-sm font-medium text-slate-700" htmlFor="call-phone-input">
+              Phone number
+            </label>
+            <input
+              id="call-phone-input"
+              type="tel"
+              value={callPhoneInput}
+              onChange={(event) => setCallPhoneInput(event.target.value)}
+              placeholder="(555) 555-5555"
+              className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
+              disabled={isInitiatingCall}
+            />
 
             {callError ? (
               <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -873,7 +903,7 @@ export default function PatientChat() {
                 type="button"
                 onClick={handleCallConfirm}
                 className="inline-flex items-center justify-center gap-2 rounded-2xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white transition-colors duration-200 hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={isInitiatingCall}
+                disabled={isInitiatingCall || !callPhoneInput.trim()}
               >
                 {isInitiatingCall ? (
                   <>

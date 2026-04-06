@@ -6,6 +6,22 @@ import { logger } from '../utils/logger.js';
 
 const router = Router();
 
+const formatVoiceDate = (value) =>
+  new Date(value).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC'
+  });
+
+const formatVoiceTime = (value) =>
+  new Date(value).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'UTC'
+  });
+
 const serializeToolResult = (result) =>
   typeof result === 'string' ? result : JSON.stringify(result);
 
@@ -14,7 +30,7 @@ const formatToolResultForVoice = (toolName, result) => {
     return serializeToolResult(result);
   }
 
-  if (toolName === 'get_available_slots') {
+  if (toolName === 'get_available_slots' || toolName === 'get_more_slots') {
     if (result.error) {
       return serializeToolResult({
         error: result.error,
@@ -62,6 +78,57 @@ const formatToolResultForVoice = (toolName, result) => {
       time: result.time,
       patient_name: result.patient_name || result.patient_first_name,
       message: result.message || result.confirmation_message
+    });
+  }
+
+  if (toolName === 'get_session_state') {
+    const patientName = [result.patient_first_name, result.patient_last_name]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+    const missingPatientFields = [];
+
+    if (!result.patient_first_name) missingPatientFields.push('first name');
+    if (!result.patient_last_name) missingPatientFields.push('last name');
+    if (!result.patient_dob) missingPatientFields.push('date of birth');
+    if (!result.patient_phone) missingPatientFields.push('phone');
+    if (!result.patient_email) missingPatientFields.push('email');
+
+    const appointment = result.appointment
+      ? {
+          doctor: result.appointment.provider_name,
+          specialty: result.appointment.provider_specialty,
+          date: result.appointment.slot_datetime
+            ? formatVoiceDate(result.appointment.slot_datetime)
+            : null,
+          time: result.appointment.slot_datetime
+            ? formatVoiceTime(result.appointment.slot_datetime)
+            : null,
+          reason: result.appointment.reason || null,
+          status: result.appointment.status || null
+        }
+      : null;
+
+    return serializeToolResult({
+      success: true,
+      patient_name: patientName || null,
+      intake_complete: Boolean(result.intake_complete),
+      missing_patient_fields: missingPatientFields,
+      appointment,
+      message: appointment
+        ? `Patient already has a confirmed appointment with ${appointment.doctor} on ${appointment.date} at ${appointment.time}.`
+        : missingPatientFields.length
+          ? `No appointment is booked yet. Still need ${missingPatientFields.join(', ')} before booking.`
+          : 'No appointment is booked yet. Patient details are already on file, so you can look up slots and book.'
+    });
+  }
+
+  if (toolName === 'book_waitlist') {
+    return serializeToolResult({
+      success: true,
+      provider_name: result.provider_name,
+      specialty: result.specialty,
+      message: result.confirmation_message || 'Patient added to the waitlist.'
     });
   }
 
@@ -216,7 +283,7 @@ const buildRecentConversationSummary = (history = []) => {
 
 router.post('/initiate-call', async (request, response) => {
   try {
-    const { sessionId } = request.body;
+    const { sessionId, phoneNumber = '' } = request.body;
 
     if (!sessionId) {
       return response.status(400).json({ error: 'sessionId required' });
@@ -252,7 +319,9 @@ router.post('/initiate-call', async (request, response) => {
       conversation_history: conversationHistory
     } = sessionResult.rows[0];
 
-    if (!patientPhone) {
+    const resolvedPhone = String(phoneNumber || patientPhone || '').trim();
+
+    if (!resolvedPhone) {
       return response.status(400).json({
         error: 'no_phone',
         message:
@@ -260,11 +329,22 @@ router.post('/initiate-call', async (request, response) => {
       });
     }
 
+    if (resolvedPhone !== patientPhone) {
+      await query(
+        `
+          UPDATE sessions
+          SET patient_phone = $2, updated_at = NOW()
+          WHERE id = $1
+        `,
+        [sessionId, resolvedPhone]
+      );
+    }
+
     const summary = buildRecentConversationSummary(conversationHistory);
     const outboundPayload = {
       agent_id: process.env.ELEVENLABS_AGENT_ID,
       agent_phone_number_id: process.env.ELEVENLABS_PHONE_NUMBER_ID,
-      to_number: patientPhone,
+      to_number: resolvedPhone,
       conversation_initiation_client_data: {
         dynamic_variables: {
           session_id: sessionId,
@@ -308,8 +388,8 @@ router.post('/initiate-call', async (request, response) => {
 
     return response.json({
       success: true,
-      message: `Calling ${patientPhone}`,
-      phone: patientPhone,
+      message: `Calling ${resolvedPhone}`,
+      phone: resolvedPhone,
       call_id: parsedResponse.call_id || parsedResponse.id || null
     });
   } catch (error) {

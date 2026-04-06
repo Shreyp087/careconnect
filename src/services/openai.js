@@ -62,6 +62,24 @@ Step 3 — Collect patient info ONE field at a time in natural conversation:
 First name → Last name → Date of birth (MM/DD/YYYY) → Phone number → Email
 Never list all fields at once. Never ask for info you already have.
 
+CRITICAL NAME COLLECTION RULES:
+- When collecting the first name, ONLY accept it if the patient directly provides it as a name.
+- If patient asks a question like "why that doctor?" or "what does he treat?", ANSWER the question first, then re-ask for the name.
+- Never grab a non-name word as a name. Names are proper nouns.
+- If you're unsure if what they said is a name, ask: "Sorry — just to confirm, is [word] your first name?"
+- When patient says something like "no my name is Tim", update the name to Tim and continue from where you left off.
+- Keep track of what info you've already collected. Never re-ask for info already provided.
+
+DOCTOR SELECTION EXPLANATION:
+When patient asks "why that doctor?" or "why Dr. X?", explain briefly:
+- Dr. Okafor: "He's our neurologist — specializes in headaches, migraines, dizziness and nerve-related issues."
+- Dr. Chen: "She's our cardiologist — handles heart, chest, and blood pressure."
+- Dr. Webb: "He's our orthopedist — focuses on bones, joints, muscles, and injuries."
+- Dr. Nair: "She's our dermatologist — specializes in skin, hair, and nail conditions."
+
+SYMPTOM WITH MULTIPLE MATCHES:
+If patient describes symptoms matching two specialties (e.g. headache + chest pain), pick the more urgent one OR ask: "Are you more concerned about the [symptom A] or the [symptom B]? That'll help me match you with the right doctor."
+
 Step 4 — Call get_available_slots with:
 - body_part: what they described (required)
 - preferred_day: day of week if mentioned ("Tuesday", "Wednesday")
@@ -730,7 +748,62 @@ const extractPhoneFromText = (value = '') => {
   return '';
 };
 
-const extractNameToken = (value = '') => {
+const NAME_STOP_WORDS = new Set([
+  'why',
+  'what',
+  'how',
+  'when',
+  'where',
+  'which',
+  'who',
+  'doctor',
+  'dr',
+  'that',
+  'this',
+  'it',
+  'he',
+  'she',
+  'yes',
+  'no',
+  'okay',
+  'ok',
+  'sure',
+  'thanks',
+  'thank',
+  'because'
+]);
+
+const isQuestionLikeMessage = (value = '') =>
+  /\?|^(why|what|how|when|where|which|who|can|could|would|should|does|do|is|are)\b/i.test(
+    String(value).trim()
+  );
+
+const isDoctorSelectionQuestion = (value = '') =>
+  /\b(why that doctor|why dr\.?|why doctor|what does he treat|what does she treat|what does dr\.?|what does doctor|why that specialist|what does he handle|what does she handle)\b/i.test(
+    String(value)
+  );
+
+const buildDoctorSelectionExplanation = (context = {}) => {
+  const specialty = String(context.specialty || '').toLowerCase();
+
+  switch (specialty) {
+    case 'neurology':
+      return "He's our neurologist — specializes in headaches, migraines, dizziness and nerve-related issues.";
+    case 'cardiology':
+      return "She's our cardiologist — handles heart, chest, and blood pressure.";
+    case 'orthopedics':
+      return "He's our orthopedist — focuses on bones, joints, muscles, and injuries.";
+    case 'dermatology':
+      return "She's our dermatologist — specializes in skin, hair, and nail conditions.";
+    default:
+      return context.providerName
+        ? `${context.providerName} is the best fit based on what you described.`
+        : "They're the best fit based on what you described.";
+  }
+};
+
+const extractNameToken = (value = '', expectedField = '') => {
+  const rawValue = String(value).trim();
   const cleanedValue = String(value)
     .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, ' ')
     .replace(/\b\d{1,4}[/-]\d{1,2}[/-]\d{1,4}\b/g, ' ')
@@ -739,7 +812,42 @@ const extractNameToken = (value = '') => {
     .replace(/\s+/g, ' ')
     .trim();
 
-  return cleanedValue.split(/\s+/).find(Boolean) || '';
+  if (!cleanedValue) {
+    return '';
+  }
+
+  const explicitNameMatch = rawValue.match(
+    /\b(?:my name is|name is|i am|i'm|this is|it is|it's)\s+([A-Za-z][A-Za-z'-]*)\b/i
+  );
+
+  if (explicitNameMatch?.[1]) {
+    return explicitNameMatch[1];
+  }
+
+  if (isQuestionLikeMessage(rawValue)) {
+    return '';
+  }
+
+  const tokens = cleanedValue.split(/\s+/).filter(Boolean);
+
+  if (tokens.length !== 1) {
+    return '';
+  }
+
+  const candidate = tokens[0];
+
+  if (NAME_STOP_WORDS.has(candidate.toLowerCase())) {
+    return '';
+  }
+
+  if (
+    expectedField !== 'patient_first_name' &&
+    expectedField !== 'patient_last_name'
+  ) {
+    return '';
+  }
+
+  return candidate;
 };
 
 const buildFieldCaptureFromMessage = (message = '', expectedField = '') => {
@@ -747,7 +855,7 @@ const buildFieldCaptureFromMessage = (message = '', expectedField = '') => {
   const email = extractEmailFromText(message);
   const dob = extractDobFromText(message);
   const phone = extractPhoneFromText(message);
-  const nameToken = extractNameToken(message);
+  const nameToken = extractNameToken(message, expectedField);
 
   if (email) {
     updates.patient_email = email;
@@ -2150,11 +2258,11 @@ export class ChatService {
     );
   }
 
-  buildMessages(conversationHistory) {
+  buildMessages(conversationHistory, systemPrompt = this.systemPrompt) {
     return [
       {
         role: 'system',
-        content: this.systemPrompt
+        content: systemPrompt
       },
       ...conversationHistory.map((message) => ({
         role:
@@ -2348,6 +2456,23 @@ export class ChatService {
 
     const expectedField = missingFields[0];
     let updatedSession = session;
+
+    if (pendingIntake && expectedField && isDoctorSelectionQuestion(userMessage)) {
+      return {
+        reply: `${buildDoctorSelectionExplanation(pendingIntake)} ${buildGuidedFieldPrompt(
+          expectedField,
+          session,
+          pendingIntake
+        )}`,
+        interaction: {
+          get_available_slots: availabilityContext,
+          book_appointment: null,
+          get_session_state: null,
+          book_waitlist: null
+        },
+        refreshSession: false
+      };
+    }
 
     if (expectedField) {
       const capturedFields = buildFieldCaptureFromMessage(userMessage, expectedField);
@@ -2970,7 +3095,35 @@ Write a concise welcome-back message that feels natural and ready to continue th
     );
 
     const trimmedHistory = buildTrimmedConversationHistory(history, session);
-    const messages = this.buildMessages(trimmedHistory);
+    const contextParts = [];
+
+    if (session.patient_first_name) {
+      contextParts.push(
+        `Patient name: ${session.patient_first_name} ${session.patient_last_name || ''}`.trim()
+      );
+    }
+    if (session.patient_email) {
+      contextParts.push(`Email: ${session.patient_email}`);
+    }
+    if (session.patient_phone) {
+      contextParts.push(`Phone: ${session.patient_phone}`);
+    }
+    if (session.patient_dob) {
+      contextParts.push(`DOB: ${session.patient_dob}`);
+    }
+    if (session.appointment_id) {
+      contextParts.push(
+        'HAS EXISTING APPOINTMENT — do not collect intake info again unless booking a new appointment'
+      );
+    }
+
+    const contextInjection = contextParts.length
+      ? `\n\n[SESSION CONTEXT — use this, do not ask again]\n${contextParts.join('\n')}`
+      : '';
+    const messages = this.buildMessages(
+      trimmedHistory,
+      this.systemPrompt + contextInjection
+    );
     let finalAssistantText = '';
     let loopCount = 0;
     const maxLoops = 5;

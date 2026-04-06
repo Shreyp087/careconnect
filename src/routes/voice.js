@@ -352,6 +352,111 @@ router.post('/webhook/tool-call', async (request, response) => {
   }
 });
 
+router.post('/webhook/inbound-call', async (request, response) => {
+  try {
+    const callerNumber =
+      request.body?.caller_number ||
+      request.body?.callerNumber ||
+      request.body?.data?.caller_number ||
+      '';
+    logger.info('[VOICE INBOUND] Call from:', callerNumber);
+
+    if (!callerNumber) {
+      return response.json({
+        dynamic_variables: {
+          patient_name: 'there',
+          conversation_summary: 'New caller - no prior session found.',
+          session_id: 'none'
+        }
+      });
+    }
+
+    const normalizedPhone = String(callerNumber).replace(/\D/g, '');
+    const result = await query(
+      `
+        SELECT
+          s.id AS session_id,
+          s.patient_first_name,
+          s.patient_last_name,
+          s.conversation_history,
+          s.appointment_id,
+          a.slot_id,
+          p.name AS doctor_name,
+          ps.slot_datetime
+        FROM sessions s
+        LEFT JOIN appointments a
+          ON a.session_id = s.id
+         AND a.status = 'confirmed'
+        LEFT JOIN providers p
+          ON p.id = a.provider_id
+        LEFT JOIN provider_slots ps
+          ON ps.id = a.slot_id
+        WHERE REGEXP_REPLACE(COALESCE(s.patient_phone, ''), '[^0-9]', '', 'g') LIKE $1
+        ORDER BY s.updated_at DESC
+        LIMIT 1
+      `,
+      [`%${normalizedPhone.slice(-10)}%`]
+    );
+
+    if (!result.rows.length) {
+      logger.info('[VOICE INBOUND] No session found for', normalizedPhone);
+      return response.json({
+        dynamic_variables: {
+          patient_name: 'there',
+          conversation_summary: 'New caller - no prior session found.',
+          session_id: 'none'
+        }
+      });
+    }
+
+    const session = result.rows[0];
+    const history = Array.isArray(session.conversation_history)
+      ? session.conversation_history
+      : [];
+    const recent = history
+      .slice(-6)
+      .map((message) => `${message.role === 'user' ? 'Patient' : 'Aria'}: ${message.content}`)
+      .join('\n');
+
+    let summary = recent || 'Returning patient, no recent messages.';
+
+    if (session.doctor_name && session.slot_datetime) {
+      const appointmentDate = new Date(session.slot_datetime).toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        timeZone: 'UTC'
+      });
+      const appointmentTime = new Date(session.slot_datetime).toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'UTC'
+      });
+      summary = `Patient has a confirmed appointment with ${session.doctor_name} on ${appointmentDate} at ${appointmentTime}.\n\n${summary}`;
+    }
+
+    logger.info('[VOICE INBOUND] Found session for', session.patient_first_name || 'there');
+
+    return response.json({
+      dynamic_variables: {
+        patient_name: session.patient_first_name || 'there',
+        conversation_summary: summary,
+        session_id: session.session_id
+      }
+    });
+  } catch (error) {
+    logger.error('[VOICE INBOUND ERROR]', error.message);
+    return response.json({
+      dynamic_variables: {
+        patient_name: 'there',
+        conversation_summary: 'Error loading session.',
+        session_id: 'none'
+      }
+    });
+  }
+});
+
 router.post('/webhook/end-of-call', async (request, response, next) => {
   try {
     const sessionId = extractSessionId(request.body);

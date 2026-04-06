@@ -48,6 +48,45 @@ const normalizeConversationHistory = (history = []) => {
   return normalizedHistory;
 };
 
+const hasSlots = (text = '') =>
+  /^\d+\.\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)/m.test(text);
+
+const parseSlots = (text = '') => {
+  const lines = text.split('\n');
+  const slots = [];
+
+  for (const line of lines) {
+    const match = line.match(/^(\d+)\.\s+(.+?)\s+at\s+(.+?)$/);
+
+    if (match) {
+      slots.push({
+        number: Number.parseInt(match[1], 10),
+        date: match[2].trim(),
+        time: match[3].trim(),
+        full: line.trim()
+      });
+    }
+  }
+
+  return slots;
+};
+
+const stripSlotListText = (text = '') => {
+  const lines = text.split('\n');
+  const firstSlotIndex = lines.findIndex((line) =>
+    /^\d+\.\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)/.test(line)
+  );
+
+  if (firstSlotIndex === -1) {
+    return text.trim();
+  }
+
+  return lines
+    .slice(0, firstSlotIndex)
+    .join('\n')
+    .trim();
+};
+
 const apiRequest = async (path, options = {}) => {
   const response = await fetch(path, {
     headers: {
@@ -138,9 +177,19 @@ function ButtonSpinner() {
   );
 }
 
-function MessageItem({ message }) {
+function MessageItem({
+  message,
+  onSlotSelect,
+  onShowDifferentDates,
+  selectedSlotNumber,
+  slotPickerDisabled,
+  showDifferentDatesDisabled
+}) {
   const isUser = message.role === 'user';
   const timestamp = formatMessageTimestamp(message.createdAt);
+  const slotMessage = !isUser && hasSlots(message.content || '');
+  const parsedSlots = slotMessage ? parseSlots(message.content) : [];
+  const displayContent = slotMessage ? stripSlotListText(message.content) : message.content;
 
   if (isUser) {
     return (
@@ -162,8 +211,49 @@ function MessageItem({ message }) {
       </div>
       <div className="max-w-[88%]">
         <div className="rounded-2xl rounded-bl-md bg-slate-100 px-4 py-3 text-sm leading-6 text-slate-800 shadow-sm whitespace-pre-wrap">
-          {message.content}
+          {displayContent}
         </div>
+        {slotMessage && parsedSlots.length ? (
+          <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {parsedSlots.map((slot) => {
+                const isSelected = selectedSlotNumber === slot.number;
+
+                return (
+                  <button
+                    key={`${message.id}-slot-${slot.number}`}
+                    type="button"
+                    onClick={() => onSlotSelect(slot)}
+                    disabled={slotPickerDisabled}
+                    className={`rounded-lg border bg-white px-4 py-3 text-left transition ${
+                      isSelected
+                        ? 'border-sky-500 bg-sky-50'
+                        : 'border-slate-200 hover:border-sky-400 hover:bg-sky-50'
+                    } ${slotPickerDisabled ? 'cursor-not-allowed opacity-80' : ''}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-medium text-gray-800">{slot.date}</p>
+                        <p className="mt-1 font-semibold text-sky-600">{slot.time}</p>
+                      </div>
+                      {isSelected ? (
+                        <span className="text-base font-semibold text-emerald-600">✓</span>
+                      ) : null}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={onShowDifferentDates}
+              disabled={showDifferentDatesDisabled}
+              className="mt-3 inline-flex items-center justify-center rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Show different dates
+            </button>
+          </div>
+        ) : null}
         <p className="mt-1 text-xs text-slate-400">{timestamp}</p>
       </div>
     </div>
@@ -185,6 +275,7 @@ export default function PatientChat() {
   const [callError, setCallError] = useState('');
   const [isInitiatingCall, setIsInitiatingCall] = useState(false);
   const [isCallInProgress, setIsCallInProgress] = useState(false);
+  const [selectedSlots, setSelectedSlots] = useState({});
   const [intakeComplete, setIntakeComplete] = useState(false);
   const [smsOptedIn, setSmsOptedIn] = useState(true);
   const [patientPhone, setPatientPhone] = useState('');
@@ -490,6 +581,27 @@ export default function PatientChat() {
     }
   };
 
+  const handleSlotSelect = async (messageId, slot) => {
+    if (!slot || isTyping || isSendingRef.current) {
+      return;
+    }
+
+    setSelectedSlots((currentSelections) => ({
+      ...currentSelections,
+      [messageId]: slot.number
+    }));
+
+    await sendChatMessage(`Option ${slot.number} — ${slot.date} at ${slot.time}`);
+  };
+
+  const handleShowDifferentDates = async () => {
+    if (isTyping || isSendingRef.current) {
+      return;
+    }
+
+    await sendChatMessage('Can you show me slots for a different week?');
+  };
+
   return (
     <div className="mx-auto max-w-7xl">
       <div className="grid gap-6 lg:grid-cols-[minmax(280px,1fr)_minmax(0,2fr)]">
@@ -641,7 +753,17 @@ export default function PatientChat() {
             >
               <div className="flex min-h-full flex-col justify-end gap-4">
                 {messages.map((message) => (
-                  <MessageItem key={message.id} message={message} />
+                  <MessageItem
+                    key={message.id}
+                    message={message}
+                    onSlotSelect={(slot) => handleSlotSelect(message.id, slot)}
+                    onShowDifferentDates={handleShowDifferentDates}
+                    selectedSlotNumber={selectedSlots[message.id]}
+                    slotPickerDisabled={
+                      Boolean(selectedSlots[message.id]) || isTyping || isSendingRef.current
+                    }
+                    showDifferentDatesDisabled={isTyping || isSendingRef.current}
+                  />
                 ))}
                 {isTyping ? <TypingIndicator /> : null}
                 {!messages.length && !isTyping ? (

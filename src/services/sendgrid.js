@@ -8,44 +8,50 @@ const PRACTICE_ADDRESS =
   process.env.OFFICE_ADDRESS || '123 Wellness Drive, Suite 400, Springfield';
 const PRACTICE_PHONE = process.env.OFFICE_PHONE || '(your real number)';
 
-if (!process.env.SENDGRID_API_KEY || !process.env.SENDGRID_API_KEY.startsWith('SG.')) {
-  console.error('[SENDGRID] WARNING: API key missing or invalid (should start with SG.)');
-}
+const ensureSendGridConfig = (recipient = '') => {
+  const apiKey = process.env.SENDGRID_API_KEY;
 
-if (!process.env.SENDGRID_FROM_EMAIL) {
-  console.error('[SENDGRID] WARNING: SENDGRID_FROM_EMAIL not set');
-}
-
-const isConfigured = () =>
-  Boolean(process.env.SENDGRID_API_KEY && process.env.SENDGRID_FROM_EMAIL);
-
-const configureSendGrid = () => {
-  if (process.env.SENDGRID_API_KEY) {
-    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+  if (!apiKey || !apiKey.startsWith('SG.')) {
+    console.error('[SENDGRID] Invalid API key:', apiKey ? 'wrong format' : 'missing');
+    throw new Error('SendGrid API key not configured');
   }
+
+  const fromEmail = process.env.SENDGRID_FROM_EMAIL;
+
+  if (!fromEmail) {
+    console.error('[SENDGRID] SENDGRID_FROM_EMAIL not set');
+    throw new Error('SendGrid from email not configured');
+  }
+
+  sgMail.setApiKey(apiKey);
+  console.log('[SENDGRID] Sending from:', fromEmail, 'to:', recipient);
+
+  return fromEmail;
 };
 
 const sendMail = async ({ to, subject, html, text }) => {
-  if (!isConfigured()) {
-    return { skipped: true, reason: 'SendGrid is not configured.' };
-  }
-
   if (!to) {
     return { skipped: true, reason: 'Recipient email is missing.' };
   }
 
-  configureSendGrid();
+  const fromEmail = ensureSendGridConfig(to);
 
-  await sgMail.send({
-    to,
-    from: {
-      email: process.env.SENDGRID_FROM_EMAIL,
-      name: PRACTICE_NAME
-    },
-    subject,
-    text,
-    html
-  });
+  try {
+    await sgMail.send({
+      to,
+      from: {
+        email: fromEmail,
+        name: PRACTICE_NAME
+      },
+      subject,
+      text,
+      html
+    });
+    console.log('[SENDGRID] Email sent successfully to', to);
+  } catch (error) {
+    console.error('[SENDGRID] Send error:', error.response?.body || error.message);
+    throw error;
+  }
 
   return {
     sent: true,

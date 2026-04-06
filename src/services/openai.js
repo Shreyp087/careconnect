@@ -493,6 +493,13 @@ const formatDayLabel = (slotDateTime) =>
     day: 'numeric'
   });
 
+const formatCalendarDate = (slotDateTime) =>
+  new Date(slotDateTime).toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'America/New_York'
+  });
+
 const buildConversationSummary = (conversationHistory = [], limit = CONVERSATION_SUMMARY_LIMIT) =>
   (Array.isArray(conversationHistory) ? conversationHistory : [])
     .slice(-limit)
@@ -1478,7 +1485,7 @@ export const getAvailableSlots = async (
         weekday: 'long',
         timeZone: 'America/New_York'
       });
-      const date = formatDayLabel(option.slot_datetime);
+      const date = formatCalendarDate(option.slot_datetime);
       const time = new Date(option.slot_datetime).toLocaleTimeString('en-US', {
         hour: 'numeric',
         minute: '2-digit',

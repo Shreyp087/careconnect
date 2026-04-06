@@ -498,7 +498,7 @@ const buildNextAvailableDays = (slots = []) => {
 };
 
 const looksLikeUuid = (value = '') =>
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
     String(value).trim()
   );
 
@@ -1667,13 +1667,13 @@ Write a concise welcome-back message that feels natural and ready to continue th
           break;
         case 'book_appointment': {
           const mergedArguments = {
-            session_id: sessionId,
             patient_first_name: sessionData.patient_first_name,
             patient_last_name: sessionData.patient_last_name,
             patient_dob: sessionData.patient_dob,
             patient_phone: sessionData.patient_phone,
             patient_email: sessionData.patient_email,
-            ...parsedArguments
+            ...parsedArguments,
+            session_id: sessionId
           };
 
           logger.info(
@@ -1688,7 +1688,6 @@ Write a concise welcome-back message that feels natural and ready to continue th
           break;
         case 'book_waitlist': {
           const mergedArguments = {
-            session_id: sessionId,
             patient_name: [
               sessionData.patient_first_name,
               sessionData.patient_last_name
@@ -1698,7 +1697,8 @@ Write a concise welcome-back message that feels natural and ready to continue th
               .trim(),
             patient_email: sessionData.patient_email,
             patient_phone: sessionData.patient_phone,
-            ...parsedArguments
+            ...parsedArguments,
+            session_id: sessionId
           };
 
           toolResult = await this.toolHandlers.book_waitlist(mergedArguments);

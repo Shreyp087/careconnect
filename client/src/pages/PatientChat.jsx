@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 const SESSION_STORAGE_KEY = 'careconnect-session-id';
 const HIDDEN_GREETING_MESSAGE = 'hello';
@@ -8,6 +9,8 @@ const OFFICE_PHONE =
 const OFFICE_ADDRESS =
   import.meta.env.VITE_OFFICE_ADDRESS ||
   '123 Wellness Drive, Suite 400, Springfield';
+const SLOT_LIST_PATTERN =
+  /^\d+\.\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)/m;
 
 const buildLocalMessage = (role, content) => ({
   id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -15,6 +18,9 @@ const buildLocalMessage = (role, content) => ({
   content,
   createdAt: new Date().toISOString()
 });
+
+const cleanMessage = (text = '') =>
+  text.replace(/\n?\nPatient SMS consent status:.*$/s, '').trim();
 
 const normalizeConversationHistory = (history = []) => {
   if (!Array.isArray(history)) {
@@ -24,19 +30,25 @@ const normalizeConversationHistory = (history = []) => {
   const normalizedHistory = history
     .filter((message) => message && ['assistant', 'user'].includes(message.role) && message.content)
     .filter((message) => message.source !== 'voice')
-    .filter(
-      (message) =>
-        !(
-          message.role === 'user' &&
-          message.content?.trim() === RETURNING_USER_SIGNAL
-        )
-    )
-    .map((message, index) => ({
-      id: message.id || message.createdAt || `${message.role}-${index}`,
-      role: message.role,
-      content: message.content,
-      createdAt: message.createdAt || new Date().toISOString()
-    }));
+    .filter((message) => {
+      const cleanedContent = cleanMessage(message.content);
+
+      return !(
+        message.role === 'user' &&
+        cleanedContent === RETURNING_USER_SIGNAL
+      );
+    })
+    .map((message, index) => {
+      const cleanedContent = cleanMessage(message.content);
+
+      return {
+        id: message.id || message.createdAt || `${message.role}-${index}`,
+        role: message.role,
+        content: cleanedContent,
+        createdAt: message.createdAt || new Date().toISOString()
+      };
+    })
+    .filter((message) => Boolean(message.content));
 
   if (
     normalizedHistory[0]?.role === 'user' &&
@@ -49,8 +61,32 @@ const normalizeConversationHistory = (history = []) => {
   return normalizedHistory;
 };
 
-const hasSlots = (text = '') =>
-  /^\d+\.\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)/m.test(text);
+const hasSlots = (text = '') => SLOT_LIST_PATTERN.test(text);
+
+const splitSlotDate = (value = '') => {
+  const parts = value
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length >= 2) {
+    const [day, ...dateParts] = parts;
+
+    return {
+      day,
+      shortDay: day.slice(0, 3).toUpperCase(),
+      dateLabel: dateParts.join(', ')
+    };
+  }
+
+  const fallback = value.trim();
+
+  return {
+    day: fallback,
+    shortDay: fallback.slice(0, 3).toUpperCase(),
+    dateLabel: fallback
+  };
+};
 
 const parseSlots = (text = '') => {
   const lines = text.split('\n');
@@ -60,10 +96,18 @@ const parseSlots = (text = '') => {
     const match = line.match(/^(\d+)\.\s+(.+?)\s+at\s+(.+?)$/);
 
     if (match) {
+      const rawDate = match[2].trim();
+      const { day, shortDay, dateLabel } = splitSlotDate(rawDate);
+
       slots.push({
         number: Number.parseInt(match[1], 10),
-        date: match[2].trim(),
+        date: rawDate,
+        rawDate,
+        day,
+        shortDay,
+        dateLabel,
         time: match[3].trim(),
+        label: line.trim(),
         full: line.trim()
       });
     }
@@ -75,7 +119,7 @@ const parseSlots = (text = '') => {
 const stripSlotListText = (text = '') => {
   const lines = text.split('\n');
   const firstSlotIndex = lines.findIndex((line) =>
-    /^\d+\.\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)/.test(line)
+    /^\d+\.\s+(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday)/.test(line)
   );
 
   if (firstSlotIndex === -1) {
@@ -86,6 +130,15 @@ const stripSlotListText = (text = '') => {
     .slice(0, firstSlotIndex)
     .join('\n')
     .trim();
+};
+
+const getSlotIntroText = (text = '') => {
+  const intro = stripSlotListText(text)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)[0];
+
+  return intro || "Here are the available appointments:";
 };
 
 const apiRequest = async (path, options = {}) => {
@@ -104,15 +157,6 @@ const apiRequest = async (path, options = {}) => {
 
   return data;
 };
-
-const formatAppointmentDate = (value) =>
-  new Date(value).toLocaleString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit'
-  });
 
 const formatAppointmentBannerDate = (value) =>
   new Date(value).toLocaleDateString('en-US', {
@@ -133,7 +177,115 @@ const formatMessageTimestamp = (value) =>
     minute: '2-digit'
   });
 
-function MedicalCrossIcon() {
+function MenuIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M4 7h16" />
+      <path d="M4 12h16" />
+      <path d="M4 17h16" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M6 6l12 12" />
+      <path d="M18 6L6 18" />
+    </svg>
+  );
+}
+
+function LocationPinIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 21s-6-4.35-6-10a6 6 0 1 1 12 0c0 5.65-6 10-6 10Z" />
+      <circle cx="12" cy="11" r="2.5" />
+    </svg>
+  );
+}
+
+function PhoneIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.86 19.86 0 0 1-8.63-3.07 19.4 19.4 0 0 1-6-6A19.86 19.86 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.8.62 2.65a2 2 0 0 1-.45 2.11L8 9.73a16 16 0 0 0 6.27 6.27l1.25-1.28a2 2 0 0 1 2.11-.45c.86.29 1.75.5 2.65.62A2 2 0 0 1 22 16.92Z" />
+    </svg>
+  );
+}
+
+function ClockIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-4 w-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v6l4 2" />
+    </svg>
+  );
+}
+
+function CalendarIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M16 3v4" />
+      <path d="M8 3v4" />
+      <path d="M3 10h18" />
+    </svg>
+  );
+}
+
+function PaperPlaneIcon() {
   return (
     <svg
       aria-hidden="true"
@@ -145,25 +297,25 @@ function MedicalCrossIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M12 5v14" />
-      <path d="M5 12h14" />
+      <path d="M22 2L11 13" />
+      <path d="M22 2L15 22l-4-9-9-4 20-7Z" />
     </svg>
   );
 }
 
 function TypingIndicator() {
   return (
-    <div className="flex items-end gap-3 animate-rise transition-all duration-300">
-      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-sky-100 text-sm font-semibold text-sky-700">
+    <div className="patient-chat-message-in flex items-end gap-3">
+      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#0EA5E9] text-xs font-semibold text-white">
         A
       </div>
-      <div className="rounded-2xl rounded-bl-md bg-slate-100 px-4 py-3 text-slate-600 shadow-sm">
+      <div className="rounded-2xl rounded-tl-sm bg-[#F8F9FA] px-4 py-3 shadow-sm">
         <div className="flex items-center gap-1.5">
           {[0, 1, 2].map((dot) => (
             <span
               key={dot}
-              className="h-2 w-2 rounded-full bg-slate-400 animate-bounce"
-              style={{ animationDelay: `${dot * 0.12}s`, animationDuration: '0.9s' }}
+              className="patient-chat-dot h-2 w-2 rounded-full bg-slate-400"
+              style={{ animationDelay: `${dot * 0.12}s` }}
             />
           ))}
         </div>
@@ -178,84 +330,154 @@ function ButtonSpinner() {
   );
 }
 
+function SuggestionPill({ children, onClick, disabled }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex min-h-11 items-center justify-center rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:border-sky-400 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {children}
+    </button>
+  );
+}
+
 function MessageItem({
   message,
-  onSlotSelect,
+  messageKey,
+  onDateSelect,
+  onDateBack,
+  onTimeSelect,
   onShowDifferentDates,
-  selectedSlotNumber,
+  slotState,
   slotPickerDisabled,
   showDifferentDatesDisabled
 }) {
   const isUser = message.role === 'user';
   const timestamp = formatMessageTimestamp(message.createdAt);
-  const slotMessage = !isUser && hasSlots(message.content || '');
-  const parsedSlots = slotMessage ? parseSlots(message.content) : [];
-  const displayContent = slotMessage ? stripSlotListText(message.content) : message.content;
+  const cleanedContent = cleanMessage(message.content || '');
+  const slotMessage = !isUser && hasSlots(cleanedContent);
+  const parsedSlots = slotMessage ? parseSlots(cleanedContent) : [];
+  const displayContent = slotMessage ? getSlotIntroText(cleanedContent) : cleanedContent;
+  const selectedDate = slotState?.selectedDate || null;
+  const selectedSlot = slotState?.selectedSlot || null;
+  const uniqueDates = [...new Map(parsedSlots.map((slot) => [slot.date, slot])).values()];
+  const timeSlotsForDate = selectedDate
+    ? parsedSlots.filter((slot) => slot.date === selectedDate)
+    : [];
+  const timeGridColumns = timeSlotsForDate.length <= 4 ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))';
 
   if (isUser) {
     return (
-      <div className="flex justify-end animate-rise transition-all duration-300 ease-out">
-        <div className="max-w-[85%]">
-          <div className="rounded-2xl rounded-br-md bg-sky-500 px-4 py-3 text-sm leading-6 text-white shadow-sm whitespace-pre-wrap">
-            {message.content}
+      <div className="patient-chat-message-in flex justify-end">
+        <div className="max-w-[88%] md:max-w-[75%]">
+          <div className="rounded-2xl rounded-tr-sm bg-[#0EA5E9] px-4 py-3 text-sm leading-6 text-white shadow-sm whitespace-pre-wrap">
+            {cleanedContent}
           </div>
-          <p className="mt-1 text-right text-xs text-slate-400">{timestamp}</p>
+          <p className="mt-1 text-right text-[11px] text-slate-400">{timestamp}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex items-end gap-3 animate-rise transition-all duration-300 ease-out">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sky-100 text-sm font-semibold text-sky-700">
+    <div className="patient-chat-message-in flex items-end gap-3">
+      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#0EA5E9] text-xs font-semibold text-white">
         A
       </div>
-      <div className="max-w-[88%]">
-        <div className="rounded-2xl rounded-bl-md bg-slate-100 px-4 py-3 text-sm leading-6 text-slate-800 shadow-sm whitespace-pre-wrap">
+      <div className="max-w-[92%] md:max-w-[75%]">
+        <div className="rounded-2xl rounded-tl-sm bg-[#F8F9FA] px-4 py-3 text-sm leading-6 text-[#1A1A2E] shadow-sm whitespace-pre-wrap">
           {displayContent}
         </div>
         {slotMessage && parsedSlots.length ? (
-          <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {parsedSlots.map((slot) => {
-                const isSelected = selectedSlotNumber === slot.number;
-
-                return (
+          <div className="mt-3 rounded-2xl border border-slate-200 bg-[#F8F9FA] p-3 shadow-sm">
+            {selectedSlot ? (
+              <div className="mt-2 flex items-center gap-2 rounded-[10px] border border-green-300 bg-green-50 px-3.5 py-2.5">
+                <span className="text-base text-green-600">✓</span>
+                <span className="text-sm font-medium text-green-700">
+                  {selectedSlot.date} at {selectedSlot.time} selected
+                </span>
+              </div>
+            ) : selectedDate ? (
+              <div className="mt-1">
+                <div className="mb-2.5 flex items-center gap-2">
                   <button
-                    key={`${message.id}-slot-${slot.number}`}
                     type="button"
-                    onClick={() => onSlotSelect(slot)}
+                    onClick={() => onDateBack(messageKey)}
                     disabled={slotPickerDisabled}
-                    className={`rounded-lg border bg-white px-4 py-3 text-left transition ${
-                      isSelected
-                        ? 'border-sky-500 bg-sky-50'
-                        : 'border-slate-200 hover:border-sky-400 hover:bg-sky-50'
-                    } ${slotPickerDisabled ? 'cursor-not-allowed opacity-80' : ''}`}
+                    className="inline-flex items-center gap-1 text-[13px] font-medium text-sky-500 transition hover:text-sky-600 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-medium text-gray-800">{slot.date}</p>
-                        <p className="mt-1 font-semibold text-sky-600">{slot.time}</p>
-                      </div>
-                      {isSelected ? (
-                        <span className="text-base font-semibold text-emerald-600">✓</span>
-                      ) : null}
-                    </div>
+                    <span aria-hidden="true">←</span>
+                    Back
                   </button>
-                );
-              })}
-            </div>
-            <button
-              type="button"
-              onClick={onShowDifferentDates}
-              disabled={showDifferentDatesDisabled}
-              className="mt-3 inline-flex items-center justify-center rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Show different dates
-            </button>
+                  <span className="text-[11px] uppercase tracking-[0.05em] text-slate-500">
+                    Step 2 of 2 — Choose a time
+                  </span>
+                </div>
+
+                <div className="mb-2.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-700">
+                  <span aria-hidden="true" className="mr-2">
+                    📅
+                  </span>
+                  {selectedDate}
+                </div>
+
+                <div
+                  className="grid gap-2"
+                  style={{ gridTemplateColumns: timeGridColumns }}
+                >
+                  {timeSlotsForDate.map((slot) => (
+                    <button
+                      key={`${message.id}-time-${slot.number}`}
+                      type="button"
+                      onClick={() => onTimeSelect(messageKey, slot)}
+                      disabled={slotPickerDisabled}
+                      className="rounded-[10px] border border-slate-200 bg-white px-3 py-3 text-center transition-all duration-150 hover:border-sky-500 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <div className="text-base font-bold text-sky-500">{slot.time}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-1">
+                <div className="mb-2 text-[11px] uppercase tracking-[0.05em] text-slate-500">
+                  Step 1 of 2 — Choose a date
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  {uniqueDates.map((slot) => (
+                    <button
+                      key={`${message.id}-date-${slot.date}`}
+                      type="button"
+                      onClick={() => onDateSelect(messageKey, slot.date)}
+                      disabled={slotPickerDisabled}
+                      className="rounded-xl border-[1.5px] border-slate-200 bg-white px-4 py-3.5 text-left transition-all duration-150 hover:border-sky-500 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-sky-500">
+                        {slot.day}
+                      </div>
+                      <div className="text-[15px] font-semibold text-slate-900">
+                        {slot.dateLabel}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onShowDifferentDates}
+                  disabled={showDifferentDatesDisabled}
+                  className="mt-2.5 w-full rounded-lg border border-slate-200 px-3.5 py-2 text-sm text-slate-500 transition hover:border-slate-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Show different dates →
+                </button>
+              </div>
+            )}
           </div>
         ) : null}
-        <p className="mt-1 text-xs text-slate-400">{timestamp}</p>
+        <p className="mt-1 text-[11px] text-slate-400">{timestamp}</p>
       </div>
     </div>
   );
@@ -276,13 +498,17 @@ export default function PatientChat() {
   const [callError, setCallError] = useState('');
   const [isInitiatingCall, setIsInitiatingCall] = useState(false);
   const [isCallInProgress, setIsCallInProgress] = useState(false);
-  const [selectedSlots, setSelectedSlots] = useState({});
+  const [slotPickerState, setSlotPickerState] = useState({});
   const [intakeComplete, setIntakeComplete] = useState(false);
   const [smsOptedIn, setSmsOptedIn] = useState(true);
   const [patientPhone, setPatientPhone] = useState('');
   const [callPhoneInput, setCallPhoneInput] = useState('');
   const [appointment, setAppointment] = useState(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const canInitiateVoiceCall = Boolean(sessionId) && !loadingSession;
+  const hasUserMessages = messages.some((message) => message.role === 'user');
+  const showWelcomeState = !loadingSession && !isTyping && !hasUserMessages;
+  const sessionTail = sessionId ? sessionId.slice(-8) : 'Starting';
 
   useEffect(() => {
     if (hasInitialized.current) {
@@ -445,7 +671,7 @@ export default function PatientChat() {
   };
 
   const sendChatMessage = async (rawMessage, options = {}) => {
-    const trimmedMessage = rawMessage.trim();
+    const trimmedMessage = cleanMessage(rawMessage);
     const activeSessionId = options.sessionId || sessionId;
 
     if (!trimmedMessage || !activeSessionId) {
@@ -470,18 +696,11 @@ export default function PatientChat() {
     setError('');
 
     try {
-      const shouldInjectConsentState = options.injectConsentState !== false;
-      const payloadMessage = intakeComplete && shouldInjectConsentState
-        ? `${trimmedMessage}\n\nPatient SMS consent status: ${
-            smsOptedIn ? 'Patient consents to SMS updates.' : 'Patient does not consent to SMS updates.'
-          }`
-        : trimmedMessage;
-
       const data = await apiRequest('/api/chat', {
         method: 'POST',
         body: JSON.stringify({
           sessionId: activeSessionId,
-          message: payloadMessage
+          message: trimmedMessage
         })
       });
 
@@ -585,6 +804,7 @@ export default function PatientChat() {
     setCallError('');
     setCallPhoneInput(patientPhone || '');
     setShowCallModal(true);
+    setIsSidebarOpen(false);
   };
 
   const handleNewConversation = () => {
@@ -599,17 +819,40 @@ export default function PatientChat() {
     }
   };
 
-  const handleSlotSelect = async (messageId, slot) => {
+  const handleDateSelect = (messageId, date) => {
+    setSlotPickerState((currentState) => ({
+      ...currentState,
+      [messageId]: {
+        selectedDate: date,
+        selectedSlot: null
+      }
+    }));
+  };
+
+  const handleDateBack = (messageId) => {
+    setSlotPickerState((currentState) => ({
+      ...currentState,
+      [messageId]: {
+        selectedDate: null,
+        selectedSlot: null
+      }
+    }));
+  };
+
+  const handleTimeSelect = async (messageId, slot) => {
     if (!slot || isTyping || isSendingRef.current) {
       return;
     }
 
-    setSelectedSlots((currentSelections) => ({
-      ...currentSelections,
-      [messageId]: slot.number
+    setSlotPickerState((currentState) => ({
+      ...currentState,
+      [messageId]: {
+        selectedDate: slot.date,
+        selectedSlot: slot
+      }
     }));
 
-    await sendChatMessage(`Option ${slot.number} — ${slot.date} at ${slot.time}`);
+    await sendChatMessage(`Option ${slot.number} - ${slot.date} at ${slot.time}`);
   };
 
   const handleShowDifferentDates = async () => {
@@ -620,189 +863,298 @@ export default function PatientChat() {
     await sendChatMessage('Can you show me slots for a different week?');
   };
 
+  const handleSuggestionClick = async (suggestion) => {
+    if (isTyping || isSendingRef.current || loadingSession) {
+      return;
+    }
+
+    await sendChatMessage(suggestion);
+  };
+
   return (
-    <div className="mx-auto max-w-7xl">
-      <div className="grid gap-6 lg:grid-cols-[minmax(280px,1fr)_minmax(0,2fr)]">
-        <aside className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm lg:p-7">
-          <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-50 text-sky-600">
-              <MedicalCrossIcon />
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-600">
-                Welcome
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold text-slate-900">
-                Greenfield Medical Practice
-              </h2>
-              <p className="mt-3 text-sm leading-6 text-slate-600">
-                Aria can help you book an appointment, share office details, and point you in the
-                right direction for prescription refill questions.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-8 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Address
-              </p>
-              <p className="mt-1 text-sm text-slate-700">{OFFICE_ADDRESS}</p>
-            </div>
-
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Phone
-              </p>
-              <p className="mt-1 text-sm text-slate-700">{OFFICE_PHONE}</p>
-            </div>
-
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                Hours
-              </p>
-              <p className="mt-1 text-sm text-slate-700">
-                Monday to Friday: 8:00 AM to 6:00 PM
-                <br />
-                Saturday: 9:00 AM to 1:00 PM
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-6 flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3">
-            <span className="relative flex h-3 w-3">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500" />
-            </span>
-            <div>
-              <p className="text-sm font-semibold text-slate-800">AI Assistant Online</p>
-              <p className="text-xs text-slate-600">
-                Aria is ready to help you schedule now.
-              </p>
-            </div>
-          </div>
-
-          {appointment ? (
-            <div className="mt-6 rounded-2xl border border-sky-100 bg-sky-50 px-4 py-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
-                Upcoming visit
-              </p>
-              <p className="mt-2 text-sm font-medium text-slate-800">
-                {appointment.provider_name} on {formatAppointmentDate(appointment.slot_datetime)}
-              </p>
-              <p className="mt-1 text-sm text-slate-600">
-                We have your appointment on file and Aria can still help with follow-up questions.
-              </p>
-            </div>
-          ) : null}
-
-          <div
-            className="mt-8"
-            title={
-              !patientPhone
-                ? 'Add a phone number and Aria can call you right away'
-                : undefined
-            }
+    <div className="flex h-screen flex-col overflow-hidden bg-[#F3F4F6] text-slate-900">
+      <header className="flex h-14 items-center justify-between border-b border-[#F0F0F0] bg-white px-4 md:px-6">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setIsSidebarOpen(true)}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100 md:hidden"
+            aria-label="Open sidebar"
           >
+            <MenuIcon />
+          </button>
+          <div>
+            <p className="text-sm font-semibold tracking-[0.18em] text-[#111827]">GREENFIELD</p>
+            <p className="text-[11px] text-slate-400">Medical Practice</p>
+          </div>
+        </div>
+
+        <Link
+          to="/admin"
+          className="text-sm font-medium text-slate-500 transition hover:text-slate-900"
+        >
+          Admin Dashboard
+        </Link>
+      </header>
+
+      <div className="flex min-h-0 flex-1">
+        <div
+          className={`fixed inset-0 z-30 bg-slate-950/45 transition-opacity duration-300 md:hidden ${
+            isSidebarOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+          }`}
+          onClick={() => setIsSidebarOpen(false)}
+          aria-hidden="true"
+        />
+
+        <aside
+          className={`fixed inset-y-0 left-0 top-14 z-40 flex w-80 max-w-[88vw] flex-col bg-[#0F1117] text-white transition-transform duration-300 md:static md:top-0 md:z-0 md:w-80 md:max-w-none md:translate-x-0 md:border-r md:border-white/5 ${
+            isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
+        >
+          <div className="flex items-center justify-between px-4 py-4 md:hidden">
+            <span className="text-xs font-semibold uppercase tracking-[0.22em] text-white/45">
+              Workspace
+            </span>
             <button
               type="button"
-              onClick={handleCallButtonClick}
-              className={`inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-sm font-semibold transition-all duration-200 focus:outline-none focus:ring-4 ${
-                isCallInProgress
-                  ? 'bg-emerald-500 text-white shadow-[0_12px_24px_rgba(16,185,129,0.24)] focus:ring-emerald-100'
-                  : canInitiateVoiceCall
-                    ? 'bg-sky-500 text-white shadow-[0_12px_24px_rgba(14,165,233,0.25)] hover:-translate-y-0.5 hover:bg-sky-600 focus:ring-sky-100'
-                    : 'cursor-not-allowed bg-sky-200 text-sky-800/75 shadow-none'
-              }`}
-              disabled={!canInitiateVoiceCall || isCallInProgress}
+              onClick={() => setIsSidebarOpen(false)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white"
+              aria-label="Close sidebar"
             >
-              {isCallInProgress ? 'Call in progress...' : 'Call me instead'}
+              <CloseIcon />
             </button>
           </div>
 
-          <p className="mt-3 text-sm leading-6 text-slate-500">
-            Prefer a phone call? If you have not shared a phone number yet, you can add it right
-            before Aria calls.
-          </p>
-        </aside>
-
-        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.08)]">
-          <header className="flex items-center justify-between border-b border-slate-200 px-5 py-4 sm:px-6">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-sky-100 text-base font-semibold text-sky-700">
-                A
-              </div>
-              <div>
-                <h1 className="text-xl font-semibold text-slate-900">Chat with Aria</h1>
-                <p className="text-sm text-slate-500">
-                  Ask about scheduling, office hours, directions, or refill support.
-                </p>
+          <div className="flex h-full flex-col overflow-y-auto pb-6">
+            <div className="px-4 pt-5">
+              <div className="flex items-center gap-3 rounded-xl bg-white/5 px-4 py-3">
+                <span className="relative flex h-3 w-3">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-400" />
+                </span>
+                <p className="text-sm font-medium text-white">Aria is online</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+
+            <div className="mx-4 my-3 rounded-xl bg-[#1A1D2E] p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/55">
+                Greenfield Medical Practice
+              </p>
+              <div className="mt-4 space-y-3 text-sm text-slate-300">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 text-sky-400">
+                    <LocationPinIcon />
+                  </span>
+                  <span>{OFFICE_ADDRESS}</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 text-sky-400">
+                    <PhoneIcon />
+                  </span>
+                  <span>{OFFICE_PHONE}</span>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 text-sky-400">
+                    <ClockIcon />
+                  </span>
+                  <span>
+                    Mon-Fri 8:00 AM-6:00 PM
+                    <br />
+                    Sat 9:00 AM-1:00 PM
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {appointment ? (
+              <div className="mx-4 rounded-xl bg-gradient-to-br from-sky-500 to-sky-600 p-4 text-white shadow-lg shadow-sky-500/25">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/70">
+                      Upcoming Visit
+                    </p>
+                    <p className="mt-2 text-xl font-semibold">{appointment.provider_name}</p>
+                    <p className="mt-2 text-sm text-white/80">
+                      {formatAppointmentBannerDate(appointment.slot_datetime)}
+                    </p>
+                    <p className="text-sm text-white/80">
+                      {formatAppointmentBannerTime(appointment.slot_datetime)}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-white/15 p-2 text-white">
+                    <CalendarIcon />
+                  </span>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mx-4 mt-4">
               <button
                 type="button"
-                onClick={handleNewConversation}
-                className="inline-flex items-center justify-center rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
-                disabled={loadingSession || isTyping}
+                onClick={handleCallButtonClick}
+                title={!patientPhone ? 'Chat first to enable' : undefined}
+                disabled={!canInitiateVoiceCall || isCallInProgress}
+                className={`w-full rounded-xl border px-4 py-4 text-left transition-all duration-200 ${
+                  isCallInProgress
+                    ? 'border-emerald-400/40 bg-emerald-500/20 text-white'
+                    : patientPhone
+                      ? 'border-white/20 bg-white/5 text-white hover:bg-white/12'
+                      : 'border-white/10 bg-white/[0.04] text-white/75 hover:bg-white/[0.08]'
+                } ${
+                  !canInitiateVoiceCall ? 'cursor-not-allowed opacity-70' : ''
+                }`}
               >
-                New conversation
+                <div className="flex items-center gap-3">
+                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-sky-300">
+                    <PhoneIcon />
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold">
+                      {isCallInProgress ? 'Call in progress...' : 'Continue by voice call'}
+                    </p>
+                    <p className="mt-1 text-xs text-white/60">
+                      Aria will pick up where we left off
+                    </p>
+                  </div>
+                </div>
               </button>
-              <div className="hidden rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-500 sm:block">
-                Session {sessionId ? sessionId.slice(0, 8) : 'Starting'}
+            </div>
+
+            <div className="mt-auto px-4 pt-6">
+              <div className="border-t border-white/10 pt-4">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-white/40">Session</p>
+                <p className="mt-2 text-sm text-white/80">{sessionTail}</p>
+                <button
+                  type="button"
+                  onClick={handleNewConversation}
+                  className="mt-3 text-sm text-white/55 transition hover:text-white hover:underline"
+                  disabled={loadingSession || isTyping}
+                >
+                  New conversation
+                </button>
               </div>
             </div>
-          </header>
+          </div>
+        </aside>
 
-          {appointment ? (
-            <div className="border-b border-sky-100 bg-sky-50/80 px-5 py-3 sm:px-6">
-              <p className="text-sm font-medium text-sky-900">
-                You have an upcoming appointment with {appointment.provider_name} on{' '}
-                {formatAppointmentBannerDate(appointment.slot_datetime)} at{' '}
-                {formatAppointmentBannerTime(appointment.slot_datetime)}
+        <main className="flex min-w-0 flex-1 flex-col bg-white">
+          <div className="flex items-center justify-between border-b border-[#F0F0F0] px-4 py-4 md:px-6">
+            <div>
+              <h1 className="text-lg font-medium text-slate-900">Chat with Aria</h1>
+              <p className="text-sm text-slate-500">
+                Ask about scheduling, office hours, or refills
               </p>
             </div>
-          ) : null}
-
-          <div className="flex min-h-[70vh] flex-col bg-white">
-            <div
-              id="patient-chat-thread"
-              className="h-[54vh] min-h-[420px] flex-1 overflow-y-auto scroll-smooth bg-slate-50/70 px-4 py-5 sm:px-6"
+            <button
+              type="button"
+              onClick={handleNewConversation}
+              className="inline-flex min-h-10 items-center justify-center rounded-full border border-slate-200 px-4 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+              disabled={loadingSession || isTyping}
             >
-              <div className="flex min-h-full flex-col justify-end gap-4">
-                {messages.map((message) => (
-                  <MessageItem
-                    key={message.id}
-                    message={message}
-                    onSlotSelect={(slot) => handleSlotSelect(message.id, slot)}
-                    onShowDifferentDates={handleShowDifferentDates}
-                    selectedSlotNumber={selectedSlots[message.id]}
-                    slotPickerDisabled={
-                      Boolean(selectedSlots[message.id]) || isTyping || isSendingRef.current
-                    }
-                    showDifferentDatesDisabled={isTyping || isSendingRef.current}
-                  />
-                ))}
-                {isTyping ? <TypingIndicator /> : null}
-                {!messages.length && !isTyping ? (
-                  <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">
-                    {loadingSession
-                      ? 'Connecting you with Aria...'
-                      : 'Start typing whenever you are ready.'}
+              New conversation
+            </button>
+          </div>
+
+          <div
+            id="patient-chat-thread"
+            className="min-h-0 flex-1 overflow-y-auto bg-white px-4 py-5 md:px-6"
+          >
+            <div className="mx-auto flex h-full w-full max-w-5xl flex-col">
+              {showWelcomeState ? (
+                <div className="flex flex-1 flex-col items-center justify-center px-2 text-center">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#0EA5E9] text-2xl font-semibold text-white">
+                    A
                   </div>
-                ) : null}
-              </div>
-            </div>
+                  <h2 className="mt-6 text-3xl font-semibold text-slate-900">Hi, I&apos;m Aria</h2>
+                  <p className="mt-3 max-w-xl text-sm leading-7 text-slate-500 md:text-base">
+                    I&apos;m here to help you schedule appointments and answer questions about
+                    Greenfield Medical Practice.
+                  </p>
 
-            <div className="border-t border-slate-200 bg-white px-4 py-4 sm:px-6">
-              {error ? (
-                <div className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                  {error}
+                  <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+                    <SuggestionPill
+                      onClick={() => handleSuggestionClick('Schedule an appointment')}
+                      disabled={loadingSession || isTyping || isSendingRef.current}
+                    >
+                      Schedule an appointment
+                    </SuggestionPill>
+                    <SuggestionPill
+                      onClick={() => handleSuggestionClick('Office hours & location')}
+                      disabled={loadingSession || isTyping || isSendingRef.current}
+                    >
+                      Office hours &amp; location
+                    </SuggestionPill>
+                    <SuggestionPill
+                      onClick={() => handleSuggestionClick('Prescription refill help')}
+                      disabled={loadingSession || isTyping || isSendingRef.current}
+                    >
+                      Prescription refill help
+                    </SuggestionPill>
+                  </div>
                 </div>
-              ) : null}
+              ) : (
+                <div className="flex flex-col gap-4 pb-6">
+                  {messages.map((message) => (
+                    <MessageItem
+                      key={message.id}
+                      message={message}
+                      messageKey={message.id}
+                      onDateSelect={handleDateSelect}
+                      onDateBack={handleDateBack}
+                      onTimeSelect={handleTimeSelect}
+                      onShowDifferentDates={handleShowDifferentDates}
+                      slotState={slotPickerState[message.id]}
+                      slotPickerDisabled={isTyping || isSendingRef.current}
+                      showDifferentDatesDisabled={isTyping || isSendingRef.current}
+                    />
+                  ))}
+                  {isTyping ? <TypingIndicator /> : null}
+                </div>
+              )}
+            </div>
+          </div>
 
-              {intakeComplete ? (
-                <label className="mb-3 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          <div className="border-t border-[#F0F0F0] bg-white px-4 py-4 md:px-6">
+            {error ? (
+              <div className="mb-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                {error}
+              </div>
+            ) : null}
+
+            <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+              <div className="flex items-end gap-3">
+                <div className="flex-1">
+                  <label htmlFor="aria-message-input" className="sr-only">
+                    Message Aria
+                  </label>
+                  <input
+                    id="aria-message-input"
+                    type="text"
+                    value={messageInput}
+                    onChange={(event) => setMessageInput(event.target.value)}
+                    onKeyDown={handleComposerKeyDown}
+                    placeholder="Message Aria..."
+                    className="min-h-11 w-full rounded-full border border-[#E5E7EB] bg-[#F8F9FA] px-5 py-3 text-sm text-slate-900 outline-none transition focus:border-[#0EA5E9] focus:ring-4 focus:ring-sky-50 placeholder:text-slate-400"
+                    disabled={loadingSession || isTyping || isSendingRef.current}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[#0EA5E9] text-white transition-all duration-150 hover:bg-[#0284C7] active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                  disabled={
+                    !messageInput.trim() ||
+                    loadingSession ||
+                    isTyping ||
+                    isSendingRef.current
+                  }
+                  aria-label="Send message"
+                >
+                  <PaperPlaneIcon />
+                </button>
+              </div>
+
+              {patientPhone ? (
+                <label className="ml-1 flex items-center gap-2 text-xs text-slate-500">
                   <input
                     type="checkbox"
                     checked={smsOptedIn}
@@ -812,63 +1164,21 @@ export default function PatientChat() {
                   <span>I consent to SMS updates</span>
                 </label>
               ) : null}
-
-              <form onSubmit={handleSubmit} className="flex items-end gap-3">
-                <div className="flex-1">
-                  <label htmlFor="aria-message-input" className="sr-only">
-                    Type your message
-                  </label>
-                  <textarea
-                    id="aria-message-input"
-                    value={messageInput}
-                    onChange={(event) => setMessageInput(event.target.value)}
-                    onKeyDown={handleComposerKeyDown}
-                    placeholder="Tell Aria what you need help with today..."
-                    rows={2}
-                    className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm text-slate-900 outline-none transition-all duration-200 placeholder:text-slate-400 focus:border-sky-300 focus:ring-4 focus:ring-sky-50"
-                    disabled={loadingSession || isTyping || isSendingRef.current}
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="inline-flex h-[50px] items-center justify-center rounded-2xl bg-sky-500 px-5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-sky-600 focus:outline-none focus:ring-4 focus:ring-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={
-                    !messageInput.trim() ||
-                    loadingSession ||
-                    isTyping ||
-                    isSendingRef.current
-                  }
-                >
-                  Send
-                </button>
-              </form>
-
-              <div className="mt-3 flex flex-col gap-1 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-                <p>
-                  Aria can help with scheduling, office information, and refill directions.
-                </p>
-                <div className="flex items-center gap-3">
-                  <span className="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-500 ring-1 ring-slate-200">
-                    Powered by AI
-                  </span>
-                  <p>{patientPhone ? `Phone on file: ${patientPhone}` : 'No phone number on file yet.'}</p>
-                </div>
-              </div>
-            </div>
+            </form>
           </div>
-        </section>
+        </main>
       </div>
 
       {showCallModal ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 px-4">
-          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl animate-rise transition-all duration-300">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4">
+          <div className="w-full max-w-md rounded-[28px] bg-white p-6 shadow-2xl">
             <h2 className="text-2xl font-semibold text-slate-900">Continue by phone?</h2>
             <p className="mt-3 text-sm leading-6 text-slate-600">
-              Enter the best number to reach you and Aria will call right away. She&apos;ll keep the
-              chat context and collect anything still missing on the call.
+              Enter the best number to reach you and Aria will call right away. She&apos;ll keep
+              the chat context and collect anything still missing on the call.
             </p>
 
-            <label className="mt-4 block text-sm font-medium text-slate-700" htmlFor="call-phone-input">
+            <label className="mt-5 block text-sm font-medium text-slate-700" htmlFor="call-phone-input">
               Phone number
             </label>
             <input
@@ -894,7 +1204,7 @@ export default function PatientChat() {
                   setShowCallModal(false);
                   setCallError('');
                 }}
-                className="inline-flex items-center justify-center rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition-colors duration-200 hover:bg-slate-50"
+                className="inline-flex min-h-11 items-center justify-center rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                 disabled={isInitiatingCall}
               >
                 Cancel
@@ -902,7 +1212,7 @@ export default function PatientChat() {
               <button
                 type="button"
                 onClick={handleCallConfirm}
-                className="inline-flex items-center justify-center gap-2 rounded-2xl bg-sky-500 px-4 py-3 text-sm font-semibold text-white transition-colors duration-200 hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-[#0EA5E9] px-4 text-sm font-semibold text-white transition hover:bg-[#0284C7] disabled:cursor-not-allowed disabled:opacity-60"
                 disabled={isInitiatingCall || !callPhoneInput.trim()}
               >
                 {isInitiatingCall ? (
@@ -921,7 +1231,7 @@ export default function PatientChat() {
 
       {toastMessage ? (
         <div
-          className={`fixed bottom-5 right-5 z-50 rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-xl transition-all duration-300 animate-rise ${
+          className={`fixed bottom-5 right-5 z-50 rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-xl ${
             toastTone === 'error' ? 'bg-rose-600' : 'bg-slate-900'
           }`}
         >
